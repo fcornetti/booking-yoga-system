@@ -1,3 +1,5 @@
+from enum import unique
+
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import UniqueConstraint, func
@@ -16,12 +18,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     surname = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(120), nullable=False)
-
-    # Add a unique constraint for name and surname combination
-    __table_args__ = (
-        UniqueConstraint('name', 'surname', name='uix_name_surname'),
-    )
+    email = db.Column(db.String(120), unique=True, nullable=False)
 
     def __init__(self, name, surname, email):
         self.name = name
@@ -53,9 +50,6 @@ def create_user():
         db.session.add(new_user)
         db.session.commit()
         return jsonify({'message': 'User created!', 'id': new_user.id}), 201
-    except IntegrityError:
-        db.session.rollback()
-        return jsonify({'error': 'User with this name and surname already exists'})
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': 'Could not create user'}), 400
