@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yoga Class Booking</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .section {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .class-item, .booking-item {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .cancel-button {
+            background-color: #f44336;
+        }
+        .message {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        .spots-available {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .spots-full {
+            color: #778899;
+            font-weight: normal;
+        }
+    </style>
+</head>
+<body>
+    <div id="message"></div>
+
+    <div class="section">
+        <h2>Available Classes</h2>
+        <div id="classes-list"></div>
+        <button id="book-button" class="button" disabled>Book Selected Class</button>
+    </div>
+
+    <div class="section">
+        <h2>Your Bookings</h2>
+        <div id="bookings-list"></div>
+        <button id="cancel-button" class="button cancel-button" disabled>Cancel Selected Booking</button>
+    </div>
+
+    <script>
+        // Configuration
+        const API_URL = 'http://localhost:5001';
+        const USER_ID = 1; // Hardcoded user ID for demo
+
+        // State
+        let selectedClass = null;
+        let selectedBooking = null;
+
+        // Elements
+        const messageDiv = document.getElementById('message');
+        const classesList = document.getElementById('classes-list');
+        const bookingsList = document.getElementById('bookings-list');
+        const bookButton = document.getElementById('book-button');
+        const cancelButton = document.getElementById('cancel-button');
+
+        // Fetch and display available classes
+
+        // Takes the array of classes and transforms each class into HTML markup. For each class, it creates:
+        // 1. A div with class "class-item"
+        // 2. A radio button input
+        // 3. A label containing class details
+        // Inside the map function, for each class it creates:
+        // A radio button that's disabled if no spots are left
+        // All radio buttons share the same 'name="class"' so only one can be selected at a time
+        // The value and id are set to the class ID
+        // When selected, it calls handleClassSelection with the class ID
+        // Applies different CSS classes based on availability:
+        // 'spots-full' class if no spots left (red color)
+        // 'spots-available' class if spots are available (green color)
+
+        async function fetchClasses() {
+            try {
+                const response = await fetch(`${API_URL}/classes`);
+                const classes = await response.json();
+
+                classesList.innerHTML = classes.map(yogaClass => {
+                    // Extract number of spots from the string (e.g., "3 out of 5" -> 3)
+                    const spotsLeft = parseInt(yogaClass['spots left'].split(' ')[0]);
+
+                    return `
+                <div class="class-item">
+                    <input type="radio" 
+                           name="class" 
+                           value="${yogaClass['class-id']}" 
+                           id="class-${yogaClass['class-id']}"
+                           ${spotsLeft === 0 ? 'disabled' : ''}
+                           onchange="handleClassSelection(${yogaClass['class-id']})">
+                    <label for="class-${yogaClass['class-id']}">
+                        <Strong>${yogaClass.name}</Strong><br>
+                        Date: ${new Date(yogaClass['date and time']).toLocaleString()}<br>
+                        Teacher: ${yogaClass.teacher}<br>
+                        <span class="${spotsLeft === 0 ? 'spots-full' : 'spots-available'}">
+                            Spots available: ${yogaClass['spots left']}
+                        </span>
+                    </label>
+                </div>
+                    `;
+                }).join('');
+            } catch (error) {
+                showMessage('Error fetching classes', 'error');
+            }
+        }
+
+        // Fetch and display bookings
+        async function fetchBookings() {
+            try {
+                const response = await fetch(`${API_URL}/bookings`);
+                const bookings = await response.json();
+                
+                bookingsList.innerHTML = bookings.map(booking => `
+                    <div class="booking-item">
+                        <input type="radio" 
+                               name="booking" 
+                               value="${booking['booking-id']}" 
+                               id="booking-${booking['booking-id']}"
+                               onchange="handleBookingSelection(${booking['booking-id']})">
+                        <label for="booking-${booking['booking-id']}">
+                            <strong>${booking.class}</strong><br>
+                            Date: ${new Date(booking['date and time']).toLocaleString()}<br>
+                            Teacher: ${booking.teacher}
+                        </label>
+                    </div>
+                `).join('');
+            } catch (error) {
+                showMessage('Error fetching bookings', 'error');
+            }
+        }
+
+        // Handle class selection
+        function handleClassSelection(classId) {
+            selectedClass = classId;
+            bookButton.disabled = false;
+        }
+
+        // Handle booking selection
+        function handleBookingSelection(bookingId) {
+            selectedBooking = bookingId;
+            cancelButton.disabled = false;
+        }
+
+        // Book a class
+        async function bookClass() {
+            try {
+                const response = await fetch(`${API_URL}/bookings`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        user_id: USER_ID,
+                        class_id: selectedClass
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showMessage('Class booked successfully!', 'success');
+                    selectedClass = null;
+                    bookButton.disabled = true;
+                    await refreshData();
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Error booking class', 'error');
+            }
+        }
+
+        // Cancel a booking
+        async function cancelBooking() {
+            try {
+                const response = await fetch(`${API_URL}/bookings/${selectedBooking}/cancel`, {
+                    method: 'PUT'
+                });
+
+                if (response.ok) {
+                    showMessage('Booking cancelled successfully!', 'success');
+                    selectedBooking = null;
+                    cancelButton.disabled = true;
+                    await refreshData();
+                } else {
+                    showMessage('Error cancelling booking', 'error');
+                }
+            } catch (error) {
+                showMessage('Error cancelling booking', 'error');
+            }
+        }
+
+        // Show message
+        function showMessage(text, type) {
+            messageDiv.innerHTML = `<div class="message ${type}">${text}</div>`;
+            setTimeout(() => {
+                messageDiv.innerHTML = '';
+            }, 3000);
+        }
+
+        // Refresh all data
+        async function refreshData() {
+            await Promise.all([
+                fetchClasses(),
+                fetchBookings()
+            ]);
+        }
+
+        // Event listeners
+        bookButton.addEventListener('click', bookClass);
+        cancelButton.addEventListener('click', cancelBooking);
+
+        // Initial load
+        refreshData();
+    </script>
+</body>
+</html>
