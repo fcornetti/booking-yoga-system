@@ -224,7 +224,8 @@ def get_classes():
     result = [{
         'name': yoga_class.name,
         'date and time': yoga_class.date_time.isoformat(),
-        'spots left': f"{yoga_class.capacity-booking_count} out of {yoga_class.capacity}",
+        'spots left': f"{yoga_class.capacity-booking_count}",
+        'spots total': yoga_class.capacity,
         'teacher': yoga_class.instructor,
         'class-id': yoga_class.id
     } for yoga_class, booking_count in classes_with_bookings_count]

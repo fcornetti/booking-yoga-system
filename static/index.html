@@ -59,7 +59,7 @@
         }
         .spots-full {
             color: #778899;
-            font-weight: normal;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -115,8 +115,7 @@
                 const classes = await response.json();
 
                 classesList.innerHTML = classes.map(yogaClass => {
-                    // Extract number of spots from the string (e.g., "3 out of 5" -> 3)
-                    const spotsLeft = parseInt(yogaClass['spots left'].split(' ')[0]);
+                    const spotsLeft = parseInt(yogaClass['spots left']);
 
                     return `
                 <div class="class-item">
@@ -131,7 +130,7 @@
                         Date: ${new Date(yogaClass['date and time']).toLocaleString()}<br>
                         Teacher: ${yogaClass.teacher}<br>
                         <span class="${spotsLeft === 0 ? 'spots-full' : 'spots-available'}">
-                            Spots available: ${yogaClass['spots left']}
+                            Spots available: ${yogaClass['spots left']} out of ${yogaClass['spots total']}
                         </span>
                     </label>
                 </div>
