@@ -4,3 +4,5 @@ Flask-CORS
 SQLAlchemy
 python-dateutil
 gunicorn
+flask_login
+werkzeug.security
