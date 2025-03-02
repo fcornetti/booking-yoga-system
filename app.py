@@ -1,29 +1,42 @@
 from operator import and_
-from flask import Flask, request, jsonify, Response
+
+from flask import Flask, request, jsonify, Response, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import UniqueConstraint, func
 from datetime import datetime
 from flask_cors import CORS
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
 import os.path
 
 app = Flask(__name__)
 CORS(app)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///yogaforjantine.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///yogaforjantinewithash.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-# app.config["JSON_SORT_KEYS"] = False
+app.config['SECRET_KEY'] = 'your_secret_key'  # Change this to a real secret key in production
 db = SQLAlchemy(app)
 
+# Flask-Login setup
+login_manager = LoginManager()
+login_manager.init_app(app)
+
 # Models
-class User(db.Model):
+class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     surname = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(128))
 
-    def __init__(self, name, surname, email):
-        self.name = name
-        self.surname = surname
-        self.email = email.lower()
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password, method='pbkdf2:sha256')
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 class Booking(db.Model):
     __tablename__ = 'bookings'
@@ -124,6 +137,7 @@ with app.app_context():
 def create_user():
     data = request.get_json()
     new_user = User(name=data['name'], surname=data['surname'], email=data['email'])
+    new_user.set_password(data['password'])
     try:
         db.session.add(new_user)
         db.session.commit()
@@ -131,6 +145,21 @@ def create_user():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': 'Could not create user'}), 400
+
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    user = User.query.filter_by(email=data['email']).first()
+    if user and user.check_password(data['password']):
+        login_user(user)
+        return jsonify({'message': 'Logged in successfully!', 'user_id': user.id}), 200
+    return jsonify({'error': 'Invalid email or password'}), 401
+
+@app.route('/logout', methods=['POST'])
+@login_required
+def logout():
+    logout_user()
+    return jsonify({'message': 'Logged out successfully!'}), 200
 
 @app.route('/users', methods=['GET'])
 def get_users():
@@ -151,12 +180,14 @@ def create_class():
     db.session.commit()
     return jsonify({'message': 'Class created!', 'id': new_class.id}), 201
 
+# Protect booking routes with login_required
 @app.route('/bookings', methods=['POST'])
+@login_required
 def create_booking():
     data = request.get_json()
     try:
         new_booking = Booking(
-            user_id=data['user_id'],
+            user_id=current_user.id,
             class_id=data['class_id']
         )
         db.session.add(new_booking)
@@ -169,15 +200,18 @@ def create_booking():
         return jsonify({'error': str(ve)}), 400
 
 @app.route('/bookings/<int:booking_id>/cancel', methods=['PUT'])
+@login_required
 def cancel_booking(booking_id):
     booking = Booking.query.get_or_404(booking_id)
+    if booking.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
     booking.cancel()
     db.session.commit()
     return jsonify({'message': 'Booking cancelled'})
 
 @app.route('/bookings', methods=['GET'])
+@login_required
 def get_bookings():
-    # Get active bookings for classes in the future
     bookings_to_classes = db.session.query(
         Booking.id.label('booking_id'),
         YogaClass.id.label('class_id'),
@@ -190,7 +224,8 @@ def get_bookings():
         Booking.class_id == YogaClass.id
     ).filter(
         Booking.status == 'active',
-        YogaClass.date_time > datetime.now()
+        YogaClass.date_time > datetime.now(),
+        Booking.user_id == current_user.id  # Filter by the logged-in user
     ).all()
 
     return jsonify([{'class': booking_to_class.class_name,
@@ -201,6 +236,7 @@ def get_bookings():
                      'booking-id': booking_to_class.booking_id
                      }
                     for booking_to_class in bookings_to_classes])
+
 
 @app.route('/classes', methods=['GET'])
 def get_classes():
