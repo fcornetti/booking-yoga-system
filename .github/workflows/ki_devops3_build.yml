@@ -43,7 +43,7 @@ jobs:
            docker build -t docker.lith.cloud:4/project/booking .
            
            echo docker push ...
-           docker push docker.lith.cloud:4/project/booking .
+           docker push docker.lith.cloud:4/project/booking
            
            echo build succeed!
            
