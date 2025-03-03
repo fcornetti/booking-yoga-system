@@ -47,4 +47,9 @@ jobs:
            
            echo build succeed!
            
+           echo deploy ...
+           curl https://jenkins.lith.cloud:4/generic-webhook-trigger/invoke?token=booking_123456
+           echo triggerred deploying in server, please wait for some time.
+           
+           
            
