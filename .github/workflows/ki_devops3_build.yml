@@ -40,10 +40,10 @@ jobs:
           
           
           echo docker build ...
-          docker build -t docker.francescocornetti.com/project/booking .
+          docker build -t docker.francescocornetti/project/booking .
           
           echo docker push ...
-          docker push docker.francescocornetti.com/project/booking
+          docker push docker.francescocornetti/project/booking
           
           echo build succeed!
           
