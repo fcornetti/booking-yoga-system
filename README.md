@@ -5,15 +5,16 @@ Features:
 3. ~~Student cannot book more than one class taking place at the same time~~ - DONE - to not TO DO because we are not even giving the option to the student to book it [*]
 4. ~~Admin cannot create a class in the past~~ - DONE
 5. Admin cannot create more than one class at the same time from the same teacher - TO DO
-6. Only registered user can book a class - to not TO DO because a not registered user can't even log in [*]
-7. ~~Check if class exists - not TO DO because we are not even going to show it to the user~~ [*]
-8. ~~Check if class is in the future - not TO DO because we are not even going to show it to the user~~ [*]
-9. Admin should email all the students that have booked to the class if is cancelled by the school and remove it from the list of the classes - NICE TO HAVE
-10. Admin send an email reminder 1 day before the class - NICE TO HAVE
-11. ~~The student, once logged in, under /bookings has to see only the classes that has booked in the future~~ - DONE
-12. ~~And under /classes only the ones in the future (also the ones that at his time of looking are fully booked since he might be interested to join~~ - DONE
-13. Create an **admin** front end **page** where she can: creates a class, check the user(s) that have booked a class - to DO
-14. Change errors to be meaningful for the user - TO DO
+6. ~~Check if class exists - not TO DO because we are not even going to show it to the user~~ [*]
+7. ~~Check if class is in the future - not TO DO because we are not even going to show it to the user~~ [*]
+8. Admin should email all the students that have booked to the class if is cancelled by the school and remove it from the list of the classes - NICE TO HAVE
+9. Admin send an email reminder 1 day before the class - NICE TO HAVE
+10. ~~The student, once logged in, under /bookings has to see only the classes that has booked in the future~~ - DONE
+11. ~~And under /classes only the ones in the future (also the ones that at his time of looking are fully booked since he might be interested to join~~ - DONE
+12. Create an admin front end page where she can: creates a class, check the user(s) that have booked a class - to DO
+13. Change errors to be meaningful for the user - TO DO
+14. ~~Only registered user can book a class - to not TO DO because a not registered user can't even log in [*]~~~~
+15. **Verification via SMTP (g-mail), not via terminal - TO DO** 
 
 Resources:
 https://claude.ai/chat/b283e5b3-12eb-424c-9375-3215423150d2

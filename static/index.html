@@ -5,7 +5,67 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Yoga Class Booking</title>
     <style>
-        /* Existing styles remain the same... */
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .button:hover {
+            background-color: #45a049;
+        }
+        .button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .cancel-button {
+            background-color: #f44336;
+        }
+        .cancel-button:hover {
+            background-color: #d32f2f;
+        }
+        .class-item, .booking-item {
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        .class-item input, .booking-item input {
+            margin-right: 10px;
+        }
+        .message {
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        .spots-available {
+            color: green;
+        }
+        .spots-full {
+            color: red;
+        }
         .auth-form {
             margin-bottom: 20px;
         }
@@ -40,6 +100,54 @@
             padding: 10px 0;
             margin-bottom: 20px;
         }
+        /* Email verification section */
+        #verification-section {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e9f5fe;
+            color: #0366d6;
+            border-left: 4px solid #0366d6;
+            border-radius: 3px;
+        }
+        #verification-section button {
+            background-color: #0366d6;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        #verification-section button:hover {
+            background-color: #0353a8;
+        }
+        /* Admin section */
+        #admin-section {
+            border-top: 1px solid #ddd;
+            margin-top: 40px;
+            padding-top: 20px;
+            padding-bottom: 20px;
+        }
+        .admin-button {
+            background-color: #9c27b0;
+            color: white;
+            margin-right: 10px;
+        }
+        .admin-button:hover {
+            background-color: #7b1fa2;
+        }
+        .user-item {
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        .verified {
+            color: green;
+        }
+        .unverified {
+            color: red;
+        }
     </style>
 </head>
 <body>
@@ -58,6 +166,14 @@
         <input type="email" id="signup-email" placeholder="Email">
         <input type="password" id="signup-password" placeholder="Password">
         <button id="signup-button" class="button">Signup</button>
+    </div>
+
+    <!-- Verification section (hidden by default) -->
+    <div id="verification-section" style="display: none;">
+        <p>Your account requires email verification. Please check your email for a verification link.</p>
+        <p>If you didn't receive the email, click below to resend it:</p>
+        <input type="email" id="verification-email" placeholder="Email">
+        <button id="resend-verification-button">Resend Verification Email</button>
     </div>
 </div>
 
@@ -79,6 +195,35 @@
     <button id="cancel-button" class="button cancel-button" disabled>Cancel Selected Booking</button>
 </div>
 
+<!-- Admin section (hidden by default) -->
+<div id="admin-section" class="section" style="display: none;">
+    <h2>Admin Panel - Test Verification</h2>
+    <p>This section is for testing the email verification functionality.</p>
+
+    <button id="view-users-button" class="button admin-button">View All Users</button>
+    <button id="view-tokens-button" class="button admin-button">View Verification Tokens</button>
+
+    <div id="admin-content" style="margin-top: 20px;"></div>
+
+    <div id="manual-verification" style="margin-top: 20px;">
+        <h3>Manually Verify a User</h3>
+        <input type="number" id="manual-verify-id" placeholder="User ID">
+        <button id="manual-verify-button" class="button admin-button">Verify User</button>
+    </div>
+
+    <div id="verification-link-test" style="margin-top: 20px;">
+        <h3>Test Verification Link</h3>
+        <input type="text" id="verification-token" placeholder="Verification Token">
+        <button id="test-verification-link" class="button admin-button">Open Verification Link</button>
+    </div>
+
+    <div id="cancel-class" style="margin-top: 20px;">
+        <h3>Cancel class</h3>
+        <input type="number" id="class-id" placeholder="Class id">
+        <button id="cancel-class-button" class="button admin-button">Cancel class</button>
+    </div>
+</div>
+
 <script>
     // Configuration
     const API_URL = ''; // Update this if your backend is running on a different URL
@@ -91,9 +236,11 @@
     // Elements
     const messageDiv = document.getElementById('message');
     const authSection = document.getElementById('auth-section');
+    const verificationSection = document.getElementById('verification-section');
     const navBar = document.getElementById('nav-bar');
     const classesSection = document.getElementById('classes-section');
     const bookingsSection = document.getElementById('bookings-section');
+    const adminSection = document.getElementById('admin-section');
     const classesList = document.getElementById('classes-list');
     const bookingsList = document.getElementById('bookings-list');
     const bookButton = document.getElementById('book-button');
@@ -101,6 +248,15 @@
     const loginButton = document.getElementById('login-button');
     const signupButton = document.getElementById('signup-button');
     const logoutButton = document.getElementById('logout-button');
+    const resendVerificationButton = document.getElementById('resend-verification-button');
+
+    // Admin elements
+    const viewUsersButton = document.getElementById('view-users-button');
+    const viewTokensButton = document.getElementById('view-tokens-button');
+    const adminContent = document.getElementById('admin-content');
+    const manualVerifyButton = document.getElementById('manual-verify-button');
+    const cancelClassButton = document.getElementById('cancel-class-button');
+    const testVerificationLinkButton = document.getElementById('test-verification-link');
 
     async function fetchClasses() {
         try {
@@ -146,7 +302,6 @@
             showMessage('Error fetching classes', 'error');
         }
     }
-
 
     // Fetch and display bookings
     async function fetchBookings() {
@@ -218,6 +373,35 @@
         }
     }
 
+
+    // Cancel a class
+    async function cancelClass() {
+        try {
+            const classId = document.getElementById('class-id').value;
+            if (!classId) {
+                throw new Error('Please enter a class ID');
+            }
+
+            const response = await fetch(`${API_URL}/classes/${classId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to cancel class');
+            }
+
+            const data = await response.json();
+            showMessage(`Class cancelled successfully! ${data.affected_bookings} bookings were affected.`, 'success');
+            await refreshData();
+        } catch (error) {
+            console.error('Error cancelling class:', error);
+            showMessage(error.message, 'error');
+        }
+    }
     // Cancel a booking
     async function cancelBooking() {
         try {
@@ -280,13 +464,51 @@
                 navBar.style.display = 'flex';
                 classesSection.style.display = 'block';
                 bookingsSection.style.display = 'block';
+
+                // Show admin section for testing purposes
+                adminSection.style.display = 'block';
+
                 showMessage('Logged in successfully!', 'success');
                 await refreshData();
+            } else {
+                // Check if this is an unverified user
+                if (data.unverified) {
+                    document.getElementById('verification-email').value = email;
+                    verificationSection.style.display = 'block';
+                    showMessage('Please verify your email before logging in', 'error');
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            }
+        } catch (error) {
+            showMessage('Error logging in', 'error');
+        }
+    }
+
+    // Resend verification email
+    async function resendVerification() {
+        const email = document.getElementById('verification-email').value;
+
+        try {
+            const response = await fetch(`${API_URL}/resend-verification`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    email: email
+                }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showMessage('Verification email has been resent. Please check your inbox.', 'success');
             } else {
                 showMessage(data.error, 'error');
             }
         } catch (error) {
-            showMessage('Error logging in', 'error');
+            showMessage('Error resending verification email', 'error');
         }
     }
 
@@ -307,10 +529,13 @@
             navBar.style.display = 'none';
             classesSection.style.display = 'none';
             bookingsSection.style.display = 'none';
+            adminSection.style.display = 'none';
+            verificationSection.style.display = 'none';
 
             // Clear form fields
             document.getElementById('login-email').value = '';
             document.getElementById('login-password').value = '';
+            document.getElementById('verification-email').value = '';
 
             // Reset selection state
             selectedClass = null;
@@ -349,7 +574,15 @@
             const data = await response.json();
 
             if (response.ok) {
-                showMessage('User created successfully! Please login.', 'success');
+                document.getElementById('verification-email').value = email;
+                verificationSection.style.display = 'block';
+                showMessage('User created successfully! Please check your email for verification link.', 'success');
+
+                // Clear signup form
+                document.getElementById('signup-name').value = '';
+                document.getElementById('signup-surname').value = '';
+                document.getElementById('signup-email').value = '';
+                document.getElementById('signup-password').value = '';
             } else {
                 showMessage(data.error, 'error');
             }
@@ -358,12 +591,115 @@
         }
     }
 
+    // Admin functions
+    async function viewAllUsers() {
+        try {
+            const response = await fetch(`${API_URL}/users`);
+            if (!response.ok) {
+                throw new Error('Failed to fetch users');
+            }
+            const users = await response.json();
+
+            adminContent.innerHTML = `
+                <h3>All Users</h3>
+                ${users.map(user => `
+                    <div class="user-item">
+                        <strong>ID:</strong> ${user.id} -
+                        <strong>Name:</strong> ${user.name} ${user.surname} -
+                        <strong>Email:</strong> ${user.email} -
+                        <strong>Status:</strong> <span class="${user.is_verified ? 'verified' : 'unverified'}">
+                            ${user.is_verified ? 'Verified' : 'Unverified'}
+                        </span>
+                    </div>
+                `).join('')}
+            `;
+        } catch (error) {
+            console.error('Error fetching users:', error);
+            adminContent.innerHTML = `<p class="error">Error fetching users</p>`;
+        }
+    }
+
+    async function viewVerificationTokens() {
+        try {
+            const response = await fetch(`${API_URL}/admin/verification-tokens`);
+            if (!response.ok) {
+                throw new Error('Failed to fetch tokens');
+            }
+            const tokens = await response.json();
+
+            adminContent.innerHTML = `
+                <h3>Verification Tokens</h3>
+                ${tokens.length > 0 ? tokens.map(token => `
+                    <div class="user-item">
+                        <strong>User ID:</strong> ${token.user_id} -
+                        <strong>Email:</strong> ${token.email} -
+                        <strong>Token:</strong> ${token.verification_token} -
+                        <strong>Expires:</strong> ${new Date(token.token_expiry).toLocaleString()}
+                    </div>
+                `).join('') : '<p>No active verification tokens</p>'}
+            `;
+        } catch (error) {
+            console.error('Error fetching tokens:', error);
+            adminContent.innerHTML = `<p class="error">Error fetching verification tokens</p>`;
+        }
+    }
+
+    async function manuallyVerifyUser() {
+        const userId = document.getElementById('manual-verify-id').value;
+
+        if (!userId) {
+            showMessage('Please enter a user ID', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_URL}/admin/verify-user/${userId}`, {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to verify user');
+            }
+
+            const data = await response.json();
+            showMessage(data.message, 'success');
+
+            // Refresh users list
+            await viewAllUsers();
+        } catch (error) {
+            console.error('Error verifying user:', error);
+            showMessage('Error verifying user', 'error');
+        }
+    }
+
+    function testVerificationLink() {
+        const token = document.getElementById('verification-token').value;
+
+        if (!token) {
+            showMessage('Please enter a verification token', 'error');
+            return;
+        }
+
+        // Open the verification link in a new tab
+        window.open(`${window.location.origin}/verify/${token}`, '_blank');
+    }
+
     // Event listeners
     bookButton.addEventListener('click', bookClass);
+    cancelClassButton.addEventListener('click', cancelClass);
     cancelButton.addEventListener('click', cancelBooking);
     loginButton.addEventListener('click', login);
     signupButton.addEventListener('click', signup);
     logoutButton.addEventListener('click', logout);
+    resendVerificationButton.addEventListener('click', resendVerification);
+    viewUsersButton.addEventListener('click', viewAllUsers);
+    viewTokensButton.addEventListener('click', viewVerificationTokens);
+    manualVerifyButton.addEventListener('click', manuallyVerifyUser);
+    testVerificationLinkButton.addEventListener('click', testVerificationLink);
+
+    // Make functions available to the global scope for onclick handlers
+    window.handleClassSelection = handleClassSelection;
+    window.handleBookingSelection = handleBookingSelection;
 
     // Initial load
     if (USER_ID) {
@@ -371,6 +707,7 @@
         navBar.style.display = 'flex';
         classesSection.style.display = 'block';
         bookingsSection.style.display = 'block';
+        adminSection.style.display = 'block';
         refreshData();
     }
 </script>
