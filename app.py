@@ -1,9 +1,5 @@
-from operator import and_
-
+import re
 from flask import Flask, request, jsonify, Response, redirect, url_for, render_template_string
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import UniqueConstraint, func
-from datetime import datetime, timedelta
 from flask_cors import CORS
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -12,146 +8,666 @@ import secrets
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import pyodbc
+from datetime import datetime, timedelta
+
+from dotenv import load_dotenv
+import os
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///yogajan.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = 'your_secret_key'  # Change this to a real secret key in production
-
-# Email configuration
-app.config['MAIL_SERVER'] = 'localhost'  # For testing, we'll use a fake SMTP server
-app.config['MAIL_PORT'] = 1025  # Default port for the fake SMTP server
-app.config['MAIL_USE_TLS'] = False  # Add this line to enable TLS
-app.config['MAIL_USERNAME'] = ''  # Not needed for fake SMTP
-app.config['MAIL_PASSWORD'] = ''  # Not needed for fake SMTP
-app.config['MAIL_DEFAULT_SENDER'] = 'noreply@yogaforjantine.com'
+app.config['SECRET_KEY'] = os.getenv('CORS_SECRET_KEY')
 app.config['VERIFICATION_TOKEN_EXPIRY'] = 24  # Hours
 
-db = SQLAlchemy(app)
+# Azure SQL Database connection parameters
+server = os.getenv('DB_SERVER')
+database = os.getenv('DB_NAME')
+username = os.getenv('DB_USERNAME')
+password = os.getenv('DB_PASSWORD')
+driver = '{ODBC Driver 18 for SQL Server}'  # Make sure this driver is installed
+
+# Create connection string
+conn_string = f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}'
+
+# Function to get database connection
+def get_db_connection():
+    return pyodbc.connect(conn_string)
+
+# Initialize database tables if they don't exist
+def init_db():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Create User table if it doesn't exist
+    cursor.execute("""
+    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Users')
+    BEGIN
+        CREATE TABLE Users (
+            id INT PRIMARY KEY IDENTITY(1,1),
+            name NVARCHAR(100) NOT NULL,
+            surname NVARCHAR(100) NOT NULL,
+            email NVARCHAR(120) NOT NULL UNIQUE,
+            password_hash NVARCHAR(128) NOT NULL,
+            is_verified BIT DEFAULT 0,
+            verification_token NVARCHAR(100) DEFAULT NULL,
+            token_expiry DATETIME NULL
+        )
+    END
+    """)
+
+    # Create YogaClass table if it doesn't exist
+    cursor.execute("""
+    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'YogaClasses')
+    BEGIN
+        CREATE TABLE YogaClasses (
+            id INT PRIMARY KEY IDENTITY(1,1),
+            name NVARCHAR(100) NOT NULL,
+            instructor NVARCHAR(100) NOT NULL,
+            date_time DATETIME NOT NULL,
+            capacity INT NOT NULL,
+            status NVARCHAR(20) DEFAULT 'active'
+        )
+    END
+    """)
+
+    # Create Booking table if it doesn't exist
+    cursor.execute("""
+    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Bookings')
+    BEGIN
+        CREATE TABLE Bookings (
+            id INT PRIMARY KEY IDENTITY(1,1),
+            user_id INT NOT NULL,
+            class_id INT NOT NULL,
+            booking_date DATETIME DEFAULT GETDATE(),
+            status NVARCHAR(20) DEFAULT 'active',
+            FOREIGN KEY (user_id) REFERENCES Users(id),
+            FOREIGN KEY (class_id) REFERENCES YogaClasses(id)
+        )
+    END
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+# Initialize database on startup
+with app.app_context():
+    init_db()
 
 # Flask-Login setup
 login_manager = LoginManager()
 login_manager.init_app(app)
 
-# Models
-class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    surname = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128))
-    is_verified = db.Column(db.Boolean, default=False)
-    verification_token = db.Column(db.String(100), unique=True)
-    token_expiry = db.Column(db.DateTime)
-
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password, method='pbkdf2:sha256')
+# User model for Flask-Login
+class User(UserMixin):
+    def __init__(self, id=None, name=None, surname=None, email=None, password_hash=None,
+                 is_verified=False, verification_token=None, token_expiry=None):
+        self.id = id
+        self.name = name
+        self.surname = surname
+        self.email = email
+        self.password_hash = password_hash
+        self.is_verified = is_verified
+        self.verification_token = verification_token
+        self.token_expiry = token_expiry
 
     def check_password(self, password):
+        """Check if the password matches the hash"""
         return check_password_hash(self.password_hash, password)
 
-    def generate_verification_token(self):
-        # Generate a random token
-        self.verification_token = secrets.token_urlsafe(32)
-        # Set token expiry (24 hours from now)
-        self.token_expiry = datetime.utcnow() + timedelta(hours=app.config['VERIFICATION_TOKEN_EXPIRY'])
-        return self.verification_token
+    def update_verification_status(self):
+        """Update the user's verification status"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        UPDATE Users 
+        SET is_verified = 1, verification_token = NULL, token_expiry = NULL 
+        WHERE id = ?
+        """, self.id)
+
+        self.is_verified = True
+        self.verification_token = None
+        self.token_expiry = None
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return True
+
+    def update_verification_token(self):
+        """Generate a new verification token"""
+        token = secrets.token_urlsafe(32)
+        expiry = datetime.utcnow() + timedelta(hours=app.config['VERIFICATION_TOKEN_EXPIRY'])
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        UPDATE Users 
+        SET verification_token = ?, token_expiry = ? 
+        WHERE id = ?
+        """, token, expiry, self.id)
+
+        self.verification_token = token
+        self.token_expiry = expiry
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return token
+
+    @classmethod
+    def create_user(cls, name, surname, email, password):
+        """Create a new user with verification token"""
+        # Generate password hash
+        password_hash = generate_password_hash(password)
+
+        # Generate verification token
+        verification_token = secrets.token_urlsafe(32)
+        token_expiry = datetime.utcnow() + timedelta(hours=app.config['VERIFICATION_TOKEN_EXPIRY'])
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Check email format
+        if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+            raise ValueError("Invalid email format")
+
+        # Insert user into database
+        cursor.execute("""
+        INSERT INTO Users (name, surname, email, password_hash, is_verified, verification_token, token_expiry)
+        VALUES (?, ?, ?, ?, 0, ?, ?)
+        """, name, surname, email, password_hash, verification_token, token_expiry)
+
+        cursor.execute("SELECT @@IDENTITY")
+        user_id = cursor.fetchone()[0]
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        # Return user object
+        return cls(
+            id=user_id,
+            name=name,
+            surname=surname,
+            email=email,
+            password_hash=password_hash,
+            is_verified=False,
+            verification_token=verification_token,
+            token_expiry=token_expiry
+        )
+
+    @classmethod
+    def get_user_by_email(cls, email):
+        """Get a user by email"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
+        FROM Users 
+        WHERE email = ?
+        """, email)
+
+        row = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        if row:
+            return cls(
+                id=row[0],
+                name=row[1],
+                surname=row[2],
+                email=row[3],
+                password_hash=row[4],
+                is_verified=bool(row[5]),
+                verification_token=row[6],
+                token_expiry=row[7]
+            )
+        return None
+
+    @classmethod
+    def get_user_by_id(cls, user_id):
+        """Get a user by ID"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
+        FROM Users 
+        WHERE id = ?
+        """, user_id)
+
+        row = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        if row:
+            return cls(
+                id=row[0],
+                name=row[1],
+                surname=row[2],
+                email=row[3],
+                password_hash=row[4],
+                is_verified=bool(row[5]),
+                verification_token=row[6],
+                token_expiry=row[7]
+            )
+        return None
+
+    @classmethod
+    def get_user_by_token(cls, token):
+        """Get a user by verification token"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
+        FROM Users 
+        WHERE verification_token = ?
+        """, token)
+
+        row = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        if row:
+            return cls(
+                id=row[0],
+                name=row[1],
+                surname=row[2],
+                email=row[3],
+                password_hash=row[4],
+                is_verified=bool(row[5]),
+                verification_token=row[6],
+                token_expiry=row[7]
+            )
+        return None
+
+
+# User routes
+@app.route('/users', methods=['POST'])
+def create_user():
+    data = request.get_json()
+
+    # Check if user already exists
+    existing_user = User.get_user_by_email(data['email'])
+    if existing_user:
+        return jsonify({'error': 'Email already registered'}), 400
+
+    try:
+        new_user = User.create_user(
+            name=data['name'],
+            surname=data['surname'],
+            email=data['email'],
+            password=data['password']
+        )
+
+        # Send verification email
+        send_verification_email(new_user)
+
+        return jsonify({
+            'message': 'User created! Please check your email to verify your account.',
+            'id': new_user.id
+        }), 201
+    except Exception as e:
+        return jsonify({'error': f'Could not create user: {str(e)}'}), 400
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return User.get_user_by_id(int(user_id))
 
-class Booking(db.Model):
-    __tablename__ = 'bookings'
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    class_id = db.Column(db.Integer, db.ForeignKey('yoga_class.id'), nullable=False)
-    booking_date = db.Column(db.DateTime, default=datetime.utcnow)
-    status = db.Column(db.String(20), default='active')  # active, cancelled
-
-    # Relationships
-    user = db.relationship('User', backref=db.backref('bookings', lazy=True))
-    yoga_class = db.relationship('YogaClass', backref=db.backref('bookings', lazy=True))
-
-    def __init__(self, user_id, class_id):
-
-        # Validate booking constraints
-        yoga_class = YogaClass.query.get(class_id)
-
-        # Check if class exists
-        # if not yoga_class:
-        #     raise ValueError("Yoga class does not exist")
-
-        # Check if class is in the future
-        # if yoga_class.date_time < datetime.now():
-        #     raise ValueError("Cannot book a class in the past")
-
-        # Check class capacity
-
-        existing_bookings = Booking.query.filter_by(
-            class_id=class_id,
-            status='active'
-        ).count()
-
-        if existing_bookings >= yoga_class.capacity:
-            raise ValueError(f"Class {class_id} is fully booked")
-
-        # Student can't book the same class more than one time
-
-        current_booking = Booking.query.filter_by(
-            class_id=class_id,
-            user_id=user_id,
-            status='active'
-        ).first()
-
-        if current_booking:
-            raise ValueError(f"User {user_id} has already booked for class {class_id}")
-
-        # Student can't book more than one class, that is at the same time
-
-        overlapping_booking = Booking.query.join(YogaClass).filter(
-            Booking.user_id == user_id,
-            Booking.status == 'active',
-            YogaClass.date_time == yoga_class.date_time
-        ).first()
-
-        if overlapping_booking:
-            raise ValueError(f"User {user_id} already has an active booking at the same time {yoga_class.date_time} in {yoga_class.name} class")
-
-        self.user_id = user_id
-        self.class_id = class_id
-
-    def cancel(self):
-        """Cancel an existing booking"""
-        self.status = 'cancelled'
-
-    def to_dict(self):
-        """Convert booking to dictionary"""
-        return {
-            'id': self.id,
-            'user_id': self.user_id,
-            'class_id': self.class_id,
-            'booking_date': self.booking_date.isoformat(),
-            'status': self.status
-        }
-
-class YogaClass(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    instructor = db.Column(db.String(100), nullable=False)
-    date_time = db.Column(db.DateTime, nullable=False)
-    capacity = db.Column(db.Integer, nullable=False)
-    status = db.Column(db.String(20), default='active')
-
-    def __init__(self, name, instructor, date_time, capacity):
-        # Check if the class is in the past
-        if date_time < datetime.now():
-            raise ValueError("Cannot create a class in the past")
+# YogaClass model
+class YogaClass:
+    def __init__(self, id=None, name=None, instructor=None, date_time=None, capacity=None, status='active'):
+        self.id = id
         self.name = name
         self.instructor = instructor
         self.date_time = date_time
         self.capacity = capacity
+        self.status = status
+
+    def save(self):
+        """Create a new yoga class or update an existing one"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Check if the class is in the past
+        if self.date_time < datetime.now():
+            cursor.close()
+            conn.close()
+            raise ValueError("Cannot create a class in the past")
+
+        if self.id is None:
+            # This is a new class
+            cursor.execute("""
+            INSERT INTO YogaClasses (name, instructor, date_time, capacity, status)
+            VALUES (?, ?, ?, ?, ?)
+            """, self.name, self.instructor, self.date_time, self.capacity, self.status)
+
+            cursor.execute("SELECT @@IDENTITY")
+            self.id = cursor.fetchone()[0]
+        else:
+            # This is an existing class being updated
+            cursor.execute("""
+            UPDATE YogaClasses 
+            SET name = ?, instructor = ?, date_time = ?, capacity = ?, status = ?
+            WHERE id = ?
+            """, self.name, self.instructor, self.date_time, self.capacity, self.status, self.id)
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return self.id
+
+    def cancel(self):
+        """Cancel this yoga class and all associated bookings"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Update the class status to cancelled
+        self.status = 'cancelled'
+        cursor.execute("UPDATE YogaClasses SET status = 'cancelled' WHERE id = ?", self.id)
+
+        # Update all active bookings for this class to cancelled
+        cursor.execute("UPDATE Bookings SET status = 'cancelled' WHERE class_id = ? AND status = 'active'", self.id)
+
+        # Get the count of affected bookings
+        cursor.execute("SELECT @@ROWCOUNT")
+        affected_bookings = cursor.fetchone()[0]
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return affected_bookings
+
+    def get_booking_count(self):
+        """Get the number of active bookings for this class"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        SELECT COUNT(*) 
+        FROM Bookings 
+        WHERE class_id = ? AND status = 'active'
+        """, self.id)
+
+        count = cursor.fetchone()[0]
+
+        cursor.close()
+        conn.close()
+
+        return count
+
+    def spots_left(self):
+        """Calculate how many spots are left in this class"""
+        return self.capacity - self.get_booking_count()
+
+    def is_full(self):
+        """Check if the class is fully booked"""
+        return self.spots_left() <= 0
+
+    def to_dict(self):
+        """Convert class to dictionary format for API responses"""
+        formatted_date_time = self.date_time.strftime('%d/%m/%Y %H:%M:%S') if self.date_time else None
+
+        return {
+            'class-id': self.id,
+            'name': self.name,
+            'teacher': self.instructor,
+            'date and time': formatted_date_time,
+            'spots total': self.capacity,
+            'spots left': self.spots_left() if self.id else self.capacity,
+            'status': self.status
+        }
+
+    @classmethod
+    def get_by_id(cls, class_id):
+        """Get a yoga class by ID"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT id, name, instructor, date_time, capacity, status FROM YogaClasses WHERE id = ?", class_id)
+        row = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        if row:
+            return cls(
+                id=row[0],
+                name=row[1],
+                instructor=row[2],
+                date_time=row[3],
+                capacity=row[4],
+                status=row[5]
+            )
+        return None
+
+    @classmethod
+    def get_future_active_classes(cls):
+        """Get all future active classes"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        SELECT YC.id, YC.name, YC.instructor, YC.date_time, YC.capacity, YC.status
+        FROM YogaClasses YC
+        WHERE YC.date_time > GETDATE() AND YC.status = 'active'
+        """)
+
+        classes = []
+        for row in cursor.fetchall():
+            yoga_class = cls(
+                id=row[0],
+                name=row[1],
+                instructor=row[2],
+                date_time=row[3],
+                capacity=row[4],
+                status=row[5]
+            )
+            classes.append(yoga_class.to_dict())
+
+        cursor.close()
+        conn.close()
+
+        return classes
+
+class Booking:
+    def __init__(self, id=None, user_id=None, class_id=None, booking_date=None, status='active'):
+        self.id = id
+        self.user_id = user_id
+        self.class_id = class_id
+        self.booking_date = booking_date
+        self.status = status
+
+    def save(self):
+        """Create a new booking or update an existing one"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Get the yoga class
+        yoga_class = YogaClass.get_by_id(self.class_id)
+
+        if not yoga_class:
+            cursor.close()
+            conn.close()
+            raise ValueError("Yoga class does not exist")
+
+        # Check if class is in the past
+        if yoga_class.date_time < datetime.now():
+            cursor.close()
+            conn.close()
+            raise ValueError("Cannot book a class in the past")
+
+        # Check class capacity
+        if yoga_class.is_full():
+            cursor.close()
+            conn.close()
+            raise ValueError(f"Class {self.class_id} is fully booked")
+
+        # Check if user already has a booking for this class
+        cursor.execute("SELECT COUNT(*) FROM Bookings WHERE class_id = ? AND user_id = ? AND status = 'active'",
+                       self.class_id, self.user_id)
+        current_booking = cursor.fetchone()[0]
+
+        if current_booking > 0:
+            cursor.close()
+            conn.close()
+            raise ValueError(f"User {self.user_id} has already booked for class {self.class_id}")
+
+        # Check for overlapping bookings
+        cursor.execute("""
+        SELECT COUNT(*) FROM Bookings B
+        JOIN YogaClasses YC1 ON B.class_id = YC1.id
+        JOIN YogaClasses YC2 ON YC2.id = ?
+        WHERE B.user_id = ? AND B.status = 'active' AND YC1.date_time = YC2.date_time
+        """, self.class_id, self.user_id)
+
+        overlapping_booking = cursor.fetchone()[0]
+
+        if overlapping_booking > 0:
+            cursor.close()
+            conn.close()
+            raise ValueError(f"User {self.user_id} already has an active booking at the same time")
+
+        if self.id is None:
+            # Create the booking
+            cursor.execute("""
+            INSERT INTO Bookings (user_id, class_id, booking_date, status)
+            VALUES (?, ?, GETDATE(), ?)
+            """, self.user_id, self.class_id, self.status)
+
+            cursor.execute("SELECT @@IDENTITY")
+            self.id = cursor.fetchone()[0]
+        else:
+            # Update existing booking
+            cursor.execute("""
+            UPDATE Bookings 
+            SET user_id = ?, class_id = ?, status = ?
+            WHERE id = ?
+            """, self.user_id, self.class_id, self.status, self.id)
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return self.id
+
+    def cancel(self):
+        """Cancel this booking"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        self.status = 'cancelled'
+        cursor.execute("UPDATE Bookings SET status = 'cancelled' WHERE id = ?", self.id)
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return True
+
+    def to_dict(self):
+        """Convert booking to a dictionary for API responses"""
+        # First, get the yoga class details
+        yoga_class = YogaClass.get_by_id(self.class_id)
+
+        formatted_date_time = None
+        class_name = None
+        instructor = None
+
+        if yoga_class:
+            formatted_date_time = yoga_class.date_time.strftime('%d/%m/%Y %H:%M:%S') if yoga_class.date_time else None
+            class_name = yoga_class.name
+            instructor = yoga_class.instructor
+
+        return {
+            'booking-id': self.id,
+            'class-id': self.class_id,
+            'class': class_name,
+            'teacher': instructor,
+            'date and time': formatted_date_time,
+            'booking-status': self.status
+        }
+
+    @classmethod
+    def get_by_id(cls, booking_id):
+        """Get a booking by ID"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        SELECT id, user_id, class_id, booking_date, status 
+        FROM Bookings 
+        WHERE id = ?
+        """, booking_id)
+
+        row = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        if row:
+            return cls(
+                id=row[0],
+                user_id=row[1],
+                class_id=row[2],
+                booking_date=row[3],
+                status=row[4]
+            )
+        return None
+
+    @classmethod
+    def get_user_active_bookings(cls, user_id):
+        """Get all active bookings for a user"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        SELECT B.id, B.user_id, B.class_id, B.booking_date, B.status
+        FROM Bookings B
+        JOIN YogaClasses YC ON B.class_id = YC.id
+        WHERE B.user_id = ? AND B.status = 'active' AND YC.date_time > GETDATE()
+        """, user_id)
+
+        bookings = []
+        for row in cursor.fetchall():
+            booking = cls(
+                id=row[0],
+                user_id=row[1],
+                class_id=row[2],
+                booking_date=row[3],
+                status=row[4]
+            )
+            bookings.append(booking.to_dict())
+
+        cursor.close()
+        conn.close()
+
+        return bookings
+
+    @classmethod
+    def create_booking(cls, user_id, class_id):
+        """Create a new booking"""
+        booking = cls(
+            user_id=user_id,
+            class_id=class_id,
+            status='active'
+        )
+
+        booking_id = booking.save()
+        return booking_id
 
 # Email sending function
 def send_verification_email(user):
@@ -162,9 +678,10 @@ def send_verification_email(user):
     html_content = f"""
     <html>
     <body>
-        <h1>Welcome to Yoga for Jantine!</h1>
-        <p>Hi {user.name}, thank you for signing up. Please click the link below to verify your email address:</p>
-        <p><a href="{verification_link}">Verify your email</a></p>
+        <p>Hi {user.name}, thank you for signing up. Please click the button below to verify your email address:</p>
+        <button style="background-color: #4CAF50; border: none; color: white; padding: 10px 20px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 5px;">
+            <a href="{verification_link}" style="color: white; text-decoration: none;">Verify your email</a>
+        </button>
         <p>This link will expire in {app.config['VERIFICATION_TOKEN_EXPIRY']} hours.</p>
         <p>If you didn't create an account, you can ignore this email.</p>
     </body>
@@ -173,9 +690,9 @@ def send_verification_email(user):
 
     # Create email message
     msg = MIMEMultipart()
-    msg['Subject'] = 'Verify your email for Yoga for Jantine'
-    msg['From'] = app.config['MAIL_DEFAULT_SENDER']
-    msg['To'] = user.email
+    msg['Subject'] = 'Verify your email for Yoga with Jantine'
+    msg['From'] = os.getenv('MAIL_USERNAME')
+    msg['To'] = "francescornetti@gmail.com" # user.email
 
     # Attach HTML content
     msg.attach(MIMEText(html_content, 'html'))
@@ -190,61 +707,22 @@ def send_verification_email(user):
         print(f"------- END OF EMAIL -------")
 
         # If you want to actually send emails (with a real SMTP server)
-        # Uncomment the following lines:
-        # with smtplib.SMTP(app.config['MAIL_SERVER'], app.config['MAIL_PORT']) as server:
-        #     server.send_message(msg)
-
-        with smtplib.SMTP(app.config['MAIL_SERVER'], app.config['MAIL_PORT']) as server:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()  # Enable TLS
-            server.login(app.config['MAIL_USERNAME'], app.config['MAIL_PASSWORD'])
+            server.login(os.getenv('MAIL_USERNAME'), os.getenv('MAIL_PASSWORD'))
             server.send_message(msg)
+
         return True
 
     except Exception as e:
         print(f"Error sending verification email: {str(e)}")
         return False
 
-# Create tables
-with app.app_context():
-    db.create_all()
-
-# User routes
-@app.route('/users', methods=['POST'])
-def create_user():
-    data = request.get_json()
-
-    # Check if user already exists
-    existing_user = User.query.filter_by(email=data['email']).first()
-    if existing_user:
-        return jsonify({'error': 'Email already registered'}), 400
-
-    new_user = User(
-        name=data['name'],
-        surname=data['surname'],
-        email=data['email'],
-        is_verified=False
-    )
-    new_user.set_password(data['password'])
-    new_user.generate_verification_token()
-
-    try:
-        db.session.add(new_user)
-        db.session.commit()
-
-        # Send verification email
-        send_verification_email(new_user)
-
-        return jsonify({
-            'message': 'User created! Please check your email to verify your account.',
-            'id': new_user.id
-        }), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Could not create user: {str(e)}'}), 400
 
 @app.route('/verify/<token>', methods=['GET'])
 def verify_email(token):
-    user = User.query.filter_by(verification_token=token).first()
+
+    user = User.get_user_by_token(token)
 
     if not user:
         return render_template_string("""
@@ -261,10 +739,7 @@ def verify_email(token):
             <p><a href="/">Return to homepage</a></p>
         """)
 
-    user.is_verified = True
-    user.verification_token = None
-    user.token_expiry = None
-    db.session.commit()
+    user.update_verification_status()
 
     return render_template_string("""
         <h1>Email verified successfully!</h1>
@@ -275,7 +750,7 @@ def verify_email(token):
 @app.route('/resend-verification', methods=['POST'])
 def resend_verification():
     data = request.get_json()
-    user = User.query.filter_by(email=data['email']).first()
+    user = User.get_user_by_email(data['email'])
 
     if not user:
         return jsonify({'error': 'User not found'}), 404
@@ -283,9 +758,7 @@ def resend_verification():
     if user.is_verified:
         return jsonify({'message': 'User is already verified'}), 200
 
-    user.generate_verification_token()
-    db.session.commit()
-
+    user.update_verification_token()
     send_verification_email(user)
 
     return jsonify({'message': 'Verification email resent'}), 200
@@ -293,7 +766,7 @@ def resend_verification():
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
-    user = User.query.filter_by(email=data['email']).first()
+    user = User.get_user_by_email(data['email'])
 
     if not user:
         return jsonify({'error': 'Invalid email or password'}), 401
@@ -315,67 +788,121 @@ def logout():
 
 @app.route('/users', methods=['GET'])
 def get_users():
-    users = User.query.all()
-    return jsonify([
-        {
-            'id': user.id,
-            'name': user.name,
-            'surname': user.surname,
-            'email': user.email,
-            'is_verified': user.is_verified
-        } for user in users
-    ])
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id, name, surname, email, is_verified FROM Users")
+    users = []
+    for row in cursor.fetchall():
+        users.append({
+            'id': row[0],
+            'name': row[1],
+            'surname': row[2],
+            'email': row[3],
+            'is_verified': bool(row[4])
+        })
+
+    cursor.close()
+    conn.close()
+
+    return jsonify(users)
 
 # Admin route to verify users (for testing)
 @app.route('/admin/verify-user/<int:user_id>', methods=['POST'])
 def admin_verify_user(user_id):
-    user = User.query.get_or_404(user_id)
-    user.is_verified = True
-    db.session.commit()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("UPDATE Users SET is_verified = 1 WHERE id = ?", user_id)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
     return jsonify({'message': f'User {user_id} verified successfully'}), 200
 
 # Admin route to get all verification tokens (for testing)
 @app.route('/admin/verification-tokens', methods=['GET'])
 def admin_get_verification_tokens():
-    users = User.query.filter(User.verification_token.isnot(None)).all()
-    return jsonify([
-        {
-            'user_id': user.id,
-            'email': user.email,
-            'verification_token': user.verification_token,
-            'token_expiry': user.token_expiry.isoformat() if user.token_expiry else None
-        } for user in users
-    ])
+    conn = get_db_connection()
+    cursor = conn.cursor()
 
-# Yoga class routes
+    cursor.execute("SELECT id, email, verification_token, token_expiry FROM Users WHERE verification_token IS NOT NULL")
+
+    tokens = []
+    for row in cursor.fetchall():
+        tokens.append({
+            'user_id': row[0],
+            'email': row[1],
+            'verification_token': row[2],
+            'token_expiry': row[3].isoformat() if row[3] else None
+        })
+
+    cursor.close()
+    conn.close()
+
+    return jsonify(tokens)
+
+# Yoga class routes - Updated to use OO YogaClass
 @app.route('/classes', methods=['POST'])
 def create_class():
     data = request.get_json()
-    new_class = YogaClass(
-        name=data['name'],
-        instructor=data['instructor'],
-        date_time=datetime.fromisoformat(data['date_time']),
-        capacity=data['capacity']
-    )
-    db.session.add(new_class)
-    db.session.commit()
-    return jsonify({'message': 'Class created!', 'id': new_class.id}), 201
 
-# Protect booking routes with login_required
+    try:
+        # Create a new YogaClass instance
+        date_format = "%d/%m/%Y"
+        yoga_class = YogaClass(
+            name=data['name'],
+            instructor=data['instructor'],
+            date_time=datetime.strptime(data['date_time'], date_format),
+            capacity=data['capacity']
+        )
+
+        # Save it to the database
+        class_id = yoga_class.save()
+
+        return jsonify({'message': 'Class created!', 'id': class_id}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/classes', methods=['GET'])
+def get_classes():
+    return jsonify(YogaClass.get_future_active_classes())
+
+@app.route('/classes/<int:class_id>', methods=['DELETE'])
+@login_required
+def delete_class(class_id):
+    try:
+        # Get the class by ID
+        yoga_class = YogaClass.get_by_id(class_id)
+
+        if not yoga_class:
+            return jsonify({'error': 'Class not found'}), 404
+
+        # Cancel the class
+        affected_bookings = yoga_class.cancel()
+
+        return jsonify({
+            'message': f'Class {class_id} cancelled successfully',
+            'affected_bookings': affected_bookings
+        }), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to cancel class: {str(e)}'}), 500
+
+# Booking routes
 @app.route('/bookings', methods=['POST'])
 @login_required
 def create_booking():
     data = request.get_json()
     try:
-        new_booking = Booking(
+        booking_id = Booking.create_booking(
             user_id=current_user.id,
             class_id=data['class_id']
         )
-        db.session.add(new_booking)
-        db.session.commit()
+
         return jsonify({
             'message': 'Booking created!',
-            'booking_id': new_booking.id
+            'booking_id': booking_id
         }), 201
     except ValueError as ve:
         return jsonify({'error': str(ve)}), 400
@@ -383,108 +910,25 @@ def create_booking():
 @app.route('/bookings/<int:booking_id>/cancel', methods=['PUT'])
 @login_required
 def cancel_booking(booking_id):
-    booking = Booking.query.get_or_404(booking_id)
+    booking = Booking.get_by_id(booking_id)
+
+    if not booking:
+        return jsonify({'error': 'Booking not found'}), 404
+
     if booking.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized'}), 403
+
     booking.cancel()
-    db.session.commit()
+
     return jsonify({'message': 'Booking cancelled'})
 
 @app.route('/bookings', methods=['GET'])
 @login_required
 def get_bookings():
-    bookings_to_classes = db.session.query(
-        Booking.id.label('booking_id'),
-        YogaClass.id.label('class_id'),
-        YogaClass.name.label('class_name'),
-        YogaClass.instructor.label('class_teacher'),
-        YogaClass.date_time.label('class_date_time'),
-        Booking.status.label('booking_status')
-    ).join(
-        YogaClass,
-        Booking.class_id == YogaClass.id
-    ).filter(
-        Booking.status == 'active',
-        YogaClass.date_time > datetime.now(),
-        Booking.user_id == current_user.id  # Filter by the logged-in user
-    ).all()
-
-    return jsonify([{'class': booking_to_class.class_name,
-                     'date and time': booking_to_class.class_date_time,
-                     'teacher': booking_to_class.class_teacher,
-                     'class-id': booking_to_class.class_id,
-                     'booking-status': booking_to_class.booking_status,
-                     'booking-id': booking_to_class.booking_id
-                     }
-                    for booking_to_class in bookings_to_classes])
-
-
-@app.route('/classes', methods=['GET'])
-def get_classes():
-    classes_with_bookings_count = db.session.query(
-        YogaClass,
-        func.count(Booking.id).label('booking_count')
-    ).outerjoin(
-        Booking,
-        and_(
-            Booking.class_id == YogaClass.id,
-            Booking.status == 'active'
-        )
-    ).filter(
-        YogaClass.date_time > datetime.now(),
-        YogaClass.status == 'active'
-    ).group_by(
-        YogaClass.id
-    ).all()
-
-    print(classes_with_bookings_count)
-
-    result = [{
-        'name': yoga_class.name,
-        'date and time': yoga_class.date_time.isoformat(),
-        'spots left': f"{yoga_class.capacity-booking_count}",
-        'spots total': yoga_class.capacity,
-        'teacher': yoga_class.instructor,
-        'class-id': yoga_class.id
-    } for yoga_class, booking_count in classes_with_bookings_count]
-
-    return jsonify(result)
-
-@app.route('/classes/<int:class_id>', methods=['DELETE'])
-@login_required
-def delete_class(class_id):
-    # Find the class
-    yoga_class = YogaClass.query.get_or_404(class_id)
-
-    # Check for active bookings
-    active_bookings = Booking.query.filter_by(class_id=class_id, status='active').all()
-    booking_count = len(active_bookings)
-
-    # Mark any active bookings as cancelled
-    for booking in active_bookings:
-        booking.status = 'cancelled'
-
-    # Instead of deleting the class, mark it as "cancelled"
-    # You'll need to add a status field to the YogaClass model:
-    yoga_class.status = 'cancelled'  # Assume you'll add this field
-
-    # Alternatively, if you don't want to add a status field:
-    # Just set the capacity to 0 to prevent new bookings
-    # yoga_class.capacity = 0
-
-    try:
-        db.session.commit()
-        return jsonify({
-            'message': f'Class {class_id} cancelled successfully',
-            'affected_bookings': booking_count
-        }), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Failed to cancel class: {str(e)}'}), 500
+    return jsonify(Booking.get_user_active_bookings(current_user.id))
 
 def root_dir():  # pragma: no cover
     return os.path.abspath(os.path.dirname(__file__))
-
 
 def get_file(filename):  # pragma: no cover
     try:
@@ -511,7 +955,6 @@ def get_resource(path):  # pragma: no cover
     mimetype = mimetypes.get(ext, "text/html")
     content = get_file(complete_path)
     return Response(content, mimetype=mimetype)
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0',debug=True, port=8000)

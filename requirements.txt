@@ -6,3 +6,5 @@ python-dateutil
 gunicorn
 flask_login
 werkzeug
+python-dotenv
+pyodbc

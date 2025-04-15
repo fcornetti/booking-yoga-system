@@ -288,7 +288,7 @@
                            onchange="handleClassSelection(${yogaClass['class-id']})">
                     <label for="class-${yogaClass['class-id']}">
                         <strong>${yogaClass.name}</strong><br>
-                        Date: ${new Date(yogaClass['date and time']).toLocaleString()}<br>
+                        Date: ${yogaClass['date and time']}<br>
                         Teacher: ${yogaClass.teacher}<br>
                         <span class="${spotsLeft === 0 ? 'spots-full' : 'spots-available'}">
                             Spots available: ${yogaClass['spots left']} out of ${yogaClass['spots total']}
@@ -321,7 +321,7 @@
                                onchange="handleBookingSelection(${booking['booking-id']})">
                         <label for="booking-${booking['booking-id']}">
                             <strong>${booking.class}</strong><br>
-                            Date: ${new Date(booking['date and time']).toLocaleString()}<br>
+                            Date: ${booking['date and time']}<br>
                             Teacher: ${booking.teacher}
                         </label>
                     </div>
