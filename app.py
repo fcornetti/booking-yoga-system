@@ -164,7 +164,7 @@ class User(UserMixin):
     def create_user(cls, name, surname, email, password):
         """Create a new user with verification token"""
         # Generate password hash
-        password_hash = generate_password_hash(password)
+        password_hash = generate_password_hash(password, method='pbkdf2:sha256')
 
         # Generate verification token
         verification_token = secrets.token_urlsafe(32)
@@ -692,7 +692,7 @@ def send_verification_email(user):
     msg = MIMEMultipart()
     msg['Subject'] = 'Verify your email for Yoga with Jantine'
     msg['From'] = os.getenv('MAIL_USERNAME')
-    msg['To'] = "francescornetti@gmail.com" # user.email
+    msg['To'] = user.email
 
     # Attach HTML content
     msg.attach(MIMEText(html_content, 'html'))
