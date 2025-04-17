@@ -65,8 +65,10 @@ def init_db():
             name NVARCHAR(100) NOT NULL,
             instructor NVARCHAR(100) NOT NULL,
             date_time DATETIME NOT NULL,
+            duration INT NOT NULL DEFAULT 75,
             capacity INT NOT NULL,
-            status NVARCHAR(20) DEFAULT 'active'
+            status NVARCHAR(20) DEFAULT 'active',
+            location NVARCHAR(200) NOT NULL
         )
     END
     """)
@@ -327,13 +329,15 @@ def load_user(user_id):
 
 # YogaClass model
 class YogaClass:
-    def __init__(self, id=None, name=None, instructor=None, date_time=None, capacity=None, status='active'):
+    def __init__(self, id=None, name=None, instructor=None, date_time=None, duration=75,capacity=None, status='active', location=None):
         self.id = id
         self.name = name
         self.instructor = instructor
         self.date_time = date_time
+        self.duration = duration
         self.capacity = capacity
         self.status = status
+        self.location = location
 
     def save(self):
         """Create a new yoga class or update an existing one"""
@@ -347,11 +351,10 @@ class YogaClass:
             raise ValueError("Cannot create a class in the past")
 
         if self.id is None:
-            # This is a new class
             cursor.execute("""
-            INSERT INTO YogaClasses (name, instructor, date_time, capacity, status)
-            VALUES (?, ?, ?, ?, ?)
-            """, self.name, self.instructor, self.date_time, self.capacity, self.status)
+            INSERT INTO YogaClasses (name, instructor, date_time, duration, capacity, status, location)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, self.name, self.instructor, self.date_time, self.duration, self.capacity, self.status, self.location)
 
             cursor.execute("SELECT @@IDENTITY")
             self.id = cursor.fetchone()[0]
@@ -359,9 +362,9 @@ class YogaClass:
             # This is an existing class being updated
             cursor.execute("""
             UPDATE YogaClasses 
-            SET name = ?, instructor = ?, date_time = ?, capacity = ?, status = ?
+            SET name = ?, instructor = ?, date_time = ?, duration = ?, capacity = ?, status = ?, location = ?
             WHERE id = ?
-            """, self.name, self.instructor, self.date_time, self.capacity, self.status, self.id)
+            """, self.name, self.instructor, self.date_time, self.duration, self.capacity, self.status, self.id, self.location)
 
         conn.commit()
         cursor.close()
@@ -419,16 +422,40 @@ class YogaClass:
 
     def to_dict(self):
         """Convert class to dictionary format for API responses"""
-        formatted_date_time = self.date_time.strftime('%d/%m/%Y %H:%M:%S') if self.date_time else None
+        formatted_date_time = self.date_time.strftime('%d/%m/%Y %H:%M')
+
+        if self.date_time:
+            # Calculate end time
+            end_time = self.date_time + timedelta(minutes=self.duration)
+
+            # Format start time
+            start_str = self.date_time.strftime('%d/%m/%Y %H:%M')
+
+            # Format end time (only the time part)
+            end_str = end_time.strftime('%H:%M')
+
+            # Combine them
+            formatted_date_time = f"{start_str}-{end_str}"
+
+        # Create Google Maps URL
+
+        google_maps_url = None
+        if self.location:
+        # URL encode the location for Google Maps
+            encoded_location = self.location.replace(' ', '+')
+            google_maps_url = f"https://www.google.com/maps/search/?api=1&query={encoded_location}"
 
         return {
             'class-id': self.id,
             'name': self.name,
             'teacher': self.instructor,
             'date and time': formatted_date_time,
+            'duration': self.duration,
             'spots total': self.capacity,
             'spots left': self.spots_left() if self.id else self.capacity,
-            'status': self.status
+            'status': self.status,
+            'location': self.location,
+            'location_url': google_maps_url
         }
 
     @classmethod
@@ -437,7 +464,7 @@ class YogaClass:
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        cursor.execute("SELECT id, name, instructor, date_time, capacity, status FROM YogaClasses WHERE id = ?", class_id)
+        cursor.execute("SELECT id, name, instructor, date_time, duration, capacity, status, location FROM YogaClasses WHERE id = ?", class_id)
         row = cursor.fetchone()
 
         cursor.close()
@@ -449,9 +476,12 @@ class YogaClass:
                 name=row[1],
                 instructor=row[2],
                 date_time=row[3],
-                capacity=row[4],
-                status=row[5]
+                duration=row[4],
+                capacity=row[5],
+                status=row[6],
+                location=row[7]
             )
+
         return None
 
     @classmethod
@@ -461,10 +491,11 @@ class YogaClass:
         cursor = conn.cursor()
 
         cursor.execute("""
-        SELECT YC.id, YC.name, YC.instructor, YC.date_time, YC.capacity, YC.status
+        SELECT YC.id, YC.name, YC.instructor, YC.date_time, YC.duration, YC.capacity, YC.status, YC.location
         FROM YogaClasses YC
         WHERE YC.date_time > GETDATE() AND YC.status = 'active'
         """)
+
 
         classes = []
         for row in cursor.fetchall():
@@ -473,8 +504,10 @@ class YogaClass:
                 name=row[1],
                 instructor=row[2],
                 date_time=row[3],
-                capacity=row[4],
-                status=row[5]
+                duration=row[4],
+                capacity=row[5],
+                status=row[6],
+                location=row[7]
             )
             classes.append(yoga_class.to_dict())
 
@@ -586,11 +619,18 @@ class Booking:
         formatted_date_time = None
         class_name = None
         instructor = None
-
+        location=None
         if yoga_class:
-            formatted_date_time = yoga_class.date_time.strftime('%d/%m/%Y %H:%M:%S') if yoga_class.date_time else None
+            # Use the same formatting from YogaClass.to_dict()
+            if yoga_class.date_time:
+                end_time = yoga_class.date_time + timedelta(minutes=yoga_class.duration)
+                start_str = yoga_class.date_time.strftime('%d/%m/%Y %H:%M')
+                end_str = end_time.strftime('%H:%M')
+                formatted_date_time = f"{start_str}-{end_str}"
+
             class_name = yoga_class.name
             instructor = yoga_class.instructor
+            location = yoga_class.location
 
         return {
             'booking-id': self.id,
@@ -598,7 +638,8 @@ class Booking:
             'class': class_name,
             'teacher': instructor,
             'date and time': formatted_date_time,
-            'booking-status': self.status
+            'booking-status': self.status,
+            'location_url': location
         }
 
     @classmethod
@@ -635,11 +676,13 @@ class Booking:
         cursor = conn.cursor()
 
         cursor.execute("""
-        SELECT B.id, B.user_id, B.class_id, B.booking_date, B.status
+        SELECT B.id, B.user_id, B.class_id, B.booking_date, B.status, YC.location
         FROM Bookings B
         JOIN YogaClasses YC ON B.class_id = YC.id
         WHERE B.user_id = ? AND B.status = 'active' AND YC.date_time > GETDATE()
         """, user_id)
+
+        # print(cursor.fetchall())
 
         bookings = []
         for row in cursor.fetchall():
@@ -648,9 +691,15 @@ class Booking:
                 user_id=row[1],
                 class_id=row[2],
                 booking_date=row[3],
-                status=row[4]
+                status=row[4],
             )
-            bookings.append(booking.to_dict())
+
+            booking_dict = booking.to_dict()
+            encoded_location = row[5].replace(' ', '+')
+            google_maps_url = f"https://www.google.com/maps/search/?api=1&query={encoded_location}"
+            booking_dict['location_url'] = google_maps_url  # Add the location url here
+            booking_dict['location'] = row[5]  # Add the location here
+            bookings.append(booking_dict)
 
         cursor.close()
         conn.close()
@@ -850,12 +899,14 @@ def create_class():
 
     try:
         # Create a new YogaClass instance
-        date_format = "%d/%m/%Y"
+        date_format = "%d/%m/%Y %H:%M"
         yoga_class = YogaClass(
             name=data['name'],
             instructor=data['instructor'],
             date_time=datetime.strptime(data['date_time'], date_format),
-            capacity=data['capacity']
+            duration=data.get('duration', 75),
+            capacity=data['capacity'],
+            location=data.get('location')
         )
 
         # Save it to the database

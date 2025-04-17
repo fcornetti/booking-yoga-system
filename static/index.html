@@ -265,6 +265,7 @@
                 throw new Error('Failed to fetch classes');
             }
             const classes = await response.json();
+            console.log('Classes data received:', classes); // Add this line to inspect the data
 
             // Fetch user bookings
             const bookingsResponse = await fetch(`${API_URL}/bookings?user_id=${USER_ID}`);
@@ -274,9 +275,13 @@
             const bookings = await bookingsResponse.json();
             const bookedClassIds = bookings.map(booking => booking['class-id']); // Extract booked class IDs
 
+            // Update the fetchClasses function
             classesList.innerHTML = classes.map(yogaClass => {
                 const spotsLeft = parseInt(yogaClass['spots left']);
                 const isBooked = bookedClassIds.includes(yogaClass['class-id']);
+
+                // Add the location link HTML if location is available
+                const locationHtml = yogaClass.location ? `Location: <a href="${yogaClass.location_url}" target="_blank" rel="noopener noreferrer">${yogaClass.location}</a><br>` : '';
 
                 return `
                 <div class="class-item">
@@ -290,6 +295,7 @@
                         <strong>${yogaClass.name}</strong><br>
                         Date: ${yogaClass['date and time']}<br>
                         Teacher: ${yogaClass.teacher}<br>
+                        ${locationHtml}
                         <span class="${spotsLeft === 0 ? 'spots-full' : 'spots-available'}">
                             Spots available: ${yogaClass['spots left']} out of ${yogaClass['spots total']}
                         </span>
@@ -322,7 +328,8 @@
                         <label for="booking-${booking['booking-id']}">
                             <strong>${booking.class}</strong><br>
                             Date: ${booking['date and time']}<br>
-                            Teacher: ${booking.teacher}
+                            Teacher: ${booking.teacher}<br>
+                            Location:  <a href="${booking.location_url}" target="_blank" rel="noopener noreferrer">${booking.location}</a><br><br>
                         </label>
                     </div>
                 `).join('');
