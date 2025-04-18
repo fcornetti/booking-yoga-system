@@ -446,7 +446,7 @@
         ]);
     }
 
-    // Login
+    // In the login function, after USER_ID is set and before refreshData() is called:
     async function login() {
         const email = document.getElementById('login-email').value;
         const password = document.getElementById('login-password').value;
@@ -472,8 +472,13 @@
                 classesSection.style.display = 'block';
                 bookingsSection.style.display = 'block';
 
-                // Show admin section for testing purposes
-                adminSection.style.display = 'block';
+                // Only show admin section for the specific admin user
+                // You can use email or user ID to identify the admin
+                if (email === 'admin@jantinevanwijlickyoga.com') { // Replace with your actual admin email or ID
+                    adminSection.style.display = 'block';
+                } else {
+                    adminSection.style.display = 'none';
+                }
 
                 showMessage('Logged in successfully!', 'success');
                 await refreshData();
@@ -491,6 +496,90 @@
             showMessage('Error logging in', 'error');
         }
     }
+
+    async function logout() {
+        try {
+            const response = await fetch(`${API_URL}/logout`, {
+                method: 'POST',
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to logout');
+            }
+
+            // Reset UI state
+            USER_ID = null;
+            authSection.style.display = 'block';
+            navBar.style.display = 'none';
+            classesSection.style.display = 'none';
+            bookingsSection.style.display = 'none';
+            adminSection.style.display = 'none'; // Always hide admin section on logout
+            verificationSection.style.display = 'none';
+
+            // Clear form fields
+            document.getElementById('login-email').value = '';
+            document.getElementById('login-password').value = '';
+            document.getElementById('verification-email').value = '';
+
+            // Reset selection state
+            selectedClass = null;
+            selectedBooking = null;
+            bookButton.disabled = true;
+            cancelButton.disabled = true;
+
+            showMessage('Logged out successfully!', 'success');
+        } catch (error) {
+            console.error('Error logging out:', error);
+            showMessage('Error logging out', 'error');
+        }
+    }
+
+
+    // Login
+    // async function login() {
+    //     const email = document.getElementById('login-email').value;
+    //     const password = document.getElementById('login-password').value;
+    //
+    //     try {
+    //         const response = await fetch(`${API_URL}/login`, {
+    //             method: 'POST',
+    //             headers: {
+    //                 'Content-Type': 'application/json',
+    //             },
+    //             body: JSON.stringify({
+    //                 email: email,
+    //                 password: password
+    //             }),
+    //         });
+    //
+    //         const data = await response.json();
+    //
+    //         if (response.ok) {
+    //             USER_ID = data.user_id;
+    //             authSection.style.display = 'none';
+    //             navBar.style.display = 'flex';
+    //             classesSection.style.display = 'block';
+    //             bookingsSection.style.display = 'block';
+    //
+    //             // Show admin section for testing purposes
+    //             adminSection.style.display = 'block';
+    //
+    //             showMessage('Logged in successfully!', 'success');
+    //             await refreshData();
+    //         } else {
+    //             // Check if this is an unverified user
+    //             if (data.unverified) {
+    //                 document.getElementById('verification-email').value = email;
+    //                 verificationSection.style.display = 'block';
+    //                 showMessage('Please verify your email before logging in', 'error');
+    //             } else {
+    //                 showMessage(data.error, 'error');
+    //             }
+    //         }
+    //     } catch (error) {
+    //         showMessage('Error logging in', 'error');
+    //     }
+    // }
 
     // Resend verification email
     async function resendVerification() {
@@ -520,42 +609,42 @@
     }
 
     // Logout function
-    async function logout() {
-        try {
-            const response = await fetch(`${API_URL}/logout`, {
-                method: 'POST',
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to logout');
-            }
-
-            // Reset UI state
-            USER_ID = null;
-            authSection.style.display = 'block';
-            navBar.style.display = 'none';
-            classesSection.style.display = 'none';
-            bookingsSection.style.display = 'none';
-            adminSection.style.display = 'none';
-            verificationSection.style.display = 'none';
-
-            // Clear form fields
-            document.getElementById('login-email').value = '';
-            document.getElementById('login-password').value = '';
-            document.getElementById('verification-email').value = '';
-
-            // Reset selection state
-            selectedClass = null;
-            selectedBooking = null;
-            bookButton.disabled = true;
-            cancelButton.disabled = true;
-
-            showMessage('Logged out successfully!', 'success');
-        } catch (error) {
-            console.error('Error logging out:', error);
-            showMessage('Error logging out', 'error');
-        }
-    }
+    // async function logout() {
+    //     try {
+    //         const response = await fetch(`${API_URL}/logout`, {
+    //             method: 'POST',
+    //         });
+    //
+    //         if (!response.ok) {
+    //             throw new Error('Failed to logout');
+    //         }
+    //
+    //         // Reset UI state
+    //         USER_ID = null;
+    //         authSection.style.display = 'block';
+    //         navBar.style.display = 'none';
+    //         classesSection.style.display = 'none';
+    //         bookingsSection.style.display = 'none';
+    //         adminSection.style.display = 'none';
+    //         verificationSection.style.display = 'none';
+    //
+    //         // Clear form fields
+    //         document.getElementById('login-email').value = '';
+    //         document.getElementById('login-password').value = '';
+    //         document.getElementById('verification-email').value = '';
+    //
+    //         // Reset selection state
+    //         selectedClass = null;
+    //         selectedBooking = null;
+    //         bookButton.disabled = true;
+    //         cancelButton.disabled = true;
+    //
+    //         showMessage('Logged out successfully!', 'success');
+    //     } catch (error) {
+    //         console.error('Error logging out:', error);
+    //         showMessage('Error logging out', 'error');
+    //     }
+    // }
 
     // Signup
     async function signup() {
@@ -709,14 +798,14 @@
     window.handleBookingSelection = handleBookingSelection;
 
     // Initial load
-    if (USER_ID) {
-        authSection.style.display = 'none';
-        navBar.style.display = 'flex';
-        classesSection.style.display = 'block';
-        bookingsSection.style.display = 'block';
-        adminSection.style.display = 'block';
-        refreshData();
-    }
+    // if (USER_ID) {
+    //     authSection.style.display = 'none';
+    //     navBar.style.display = 'flex';
+    //     classesSection.style.display = 'block';
+    //     bookingsSection.style.display = 'block';
+    //     adminSection.style.display = 'block';
+    //     refreshData();
+    // }
 </script>
 </body>
 </html>
