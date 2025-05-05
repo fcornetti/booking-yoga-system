@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Yoga Class Booking</title>
     <style>
+        #session-timeout-modal {
+            font-family: Arial, sans-serif;
+        }
+        #session-extend-btn:hover {
+            background: #45a049 !important;
+        }
         body {
             font-family: Arial, sans-serif;
             max-width: 1200px;
@@ -228,10 +234,20 @@
     // Configuration
     const API_URL = ''; // Update this if your backend is running on a different URL
     let USER_ID = null;
+    const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
+    const WARNING_BEFORE_TIMEOUT = 5 * 60 * 1000; // Show warning 5 minutes before timeout
+    const CHECK_INTERVAL = 60 * 1000; // Check every minute
 
     // State
     let selectedClass = null;
     let selectedBooking = null;
+
+    // Global variables for session management
+    let lastActivity = Date.now();
+    let warningShown = false;
+    let sessionInterval = null;
+    let modal = null;
+    let extendButton = null;
 
     // Elements
     const messageDiv = document.getElementById('message');
@@ -534,53 +550,6 @@
         }
     }
 
-
-    // Login
-    // async function login() {
-    //     const email = document.getElementById('login-email').value;
-    //     const password = document.getElementById('login-password').value;
-    //
-    //     try {
-    //         const response = await fetch(`${API_URL}/login`, {
-    //             method: 'POST',
-    //             headers: {
-    //                 'Content-Type': 'application/json',
-    //             },
-    //             body: JSON.stringify({
-    //                 email: email,
-    //                 password: password
-    //             }),
-    //         });
-    //
-    //         const data = await response.json();
-    //
-    //         if (response.ok) {
-    //             USER_ID = data.user_id;
-    //             authSection.style.display = 'none';
-    //             navBar.style.display = 'flex';
-    //             classesSection.style.display = 'block';
-    //             bookingsSection.style.display = 'block';
-    //
-    //             // Show admin section for testing purposes
-    //             adminSection.style.display = 'block';
-    //
-    //             showMessage('Logged in successfully!', 'success');
-    //             await refreshData();
-    //         } else {
-    //             // Check if this is an unverified user
-    //             if (data.unverified) {
-    //                 document.getElementById('verification-email').value = email;
-    //                 verificationSection.style.display = 'block';
-    //                 showMessage('Please verify your email before logging in', 'error');
-    //             } else {
-    //                 showMessage(data.error, 'error');
-    //             }
-    //         }
-    //     } catch (error) {
-    //         showMessage('Error logging in', 'error');
-    //     }
-    // }
-
     // Resend verification email
     async function resendVerification() {
         const email = document.getElementById('verification-email').value;
@@ -607,44 +576,6 @@
             showMessage('Error resending verification email', 'error');
         }
     }
-
-    // Logout function
-    // async function logout() {
-    //     try {
-    //         const response = await fetch(`${API_URL}/logout`, {
-    //             method: 'POST',
-    //         });
-    //
-    //         if (!response.ok) {
-    //             throw new Error('Failed to logout');
-    //         }
-    //
-    //         // Reset UI state
-    //         USER_ID = null;
-    //         authSection.style.display = 'block';
-    //         navBar.style.display = 'none';
-    //         classesSection.style.display = 'none';
-    //         bookingsSection.style.display = 'none';
-    //         adminSection.style.display = 'none';
-    //         verificationSection.style.display = 'none';
-    //
-    //         // Clear form fields
-    //         document.getElementById('login-email').value = '';
-    //         document.getElementById('login-password').value = '';
-    //         document.getElementById('verification-email').value = '';
-    //
-    //         // Reset selection state
-    //         selectedClass = null;
-    //         selectedBooking = null;
-    //         bookButton.disabled = true;
-    //         cancelButton.disabled = true;
-    //
-    //         showMessage('Logged out successfully!', 'success');
-    //     } catch (error) {
-    //         console.error('Error logging out:', error);
-    //         showMessage('Error logging out', 'error');
-    //     }
-    // }
 
     // Signup
     async function signup() {
@@ -780,6 +711,95 @@
         window.open(`${window.location.origin}/verify/${token}`, '_blank');
     }
 
+    // Create the session timeout modal
+    function createSessionTimeoutModal() {
+        // Calculate warning time in minutes for the message
+        const warningTimeMinutes = Math.floor(WARNING_BEFORE_TIMEOUT / (60 * 1000));
+
+        const modalHTML = `
+    <div id="session-timeout-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background-color: rgba(0,0,0,0.5); z-index: 1000;">
+      <div style="background: white; width: 400px; max-width: 90%; margin: 100px auto; padding: 20px; border-radius: 5px; text-align: center;">
+        <h3>Session Timeout Warning</h3>
+        <p>Your session will expire in ${warningTimeMinutes} minutes due to inactivity.</p>
+        <p>Would you like to stay logged in?</p>
+        <button id="session-extend-btn" style="background: #4CAF50; color: white; border: none; padding: 10px 15px;
+            border-radius: 4px; cursor: pointer; margin-top: 10px;">
+          Stay Logged In
+        </button>
+      </div>
+    </div>
+    `;
+
+        // Add modal to document body
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+        // Get modal elements
+        modal = document.getElementById('session-timeout-modal');
+        extendButton = document.getElementById('session-extend-btn');
+
+        // Set up event handler for the extend button
+        extendButton.addEventListener('click', resetTimer);
+    }
+
+    // Reset the timer when user shows activity
+    function resetTimer() {
+        // Only reset timer if user is logged in
+        if (USER_ID) {
+            lastActivity = Date.now();
+            hideWarningModal();
+        }
+    }
+
+    // Hide the warning modal
+    function hideWarningModal() {
+        warningShown = false;
+        modal.style.display = 'none';
+    }
+
+    // Show the warning modal
+    function showWarningModal() {
+        if (warningShown) return;
+        warningShown = true;
+        modal.style.display = 'block';
+    }
+
+    // Check session status periodically
+    function checkSession() {
+
+        // Only check session if user is logged in (USER_ID exists)
+        if (!USER_ID) {
+            return; // Skip session checking if not logged in
+        }
+
+        const elapsed = Date.now() - lastActivity;
+
+        if (elapsed >= SESSION_TIMEOUT) {
+            // Session expired - alert user and redirect to login
+            clearInterval(sessionInterval);
+            alert('Your session has expired due to inactivity. Please log in again.');
+            hideWarningModal()
+            logout(); // Call the existing logout function to reset UI state
+        } else if (elapsed >= (SESSION_TIMEOUT - WARNING_BEFORE_TIMEOUT) && !warningShown) {
+            // Show warning before expiration
+            showWarningModal();
+        }
+    }
+
+    // Initialize the session timeout system
+    function initSessionTimeout() {
+        createSessionTimeoutModal();
+
+        // Activity events to track user interaction
+        const activityEvents = ['mousedown', 'keypress', 'scroll', 'touchstart'];
+        activityEvents.forEach(event => {
+            document.addEventListener(event, resetTimer, true);
+        });
+
+        // Start the session checker interval
+        sessionInterval = setInterval(checkSession, CHECK_INTERVAL);
+    }
+
     // Event listeners
     bookButton.addEventListener('click', bookClass);
     cancelClassButton.addEventListener('click', cancelClass);
@@ -792,20 +812,12 @@
     viewTokensButton.addEventListener('click', viewVerificationTokens);
     manualVerifyButton.addEventListener('click', manuallyVerifyUser);
     testVerificationLinkButton.addEventListener('click', testVerificationLink);
+    document.addEventListener('DOMContentLoaded', initSessionTimeout);
 
     // Make functions available to the global scope for onclick handlers
     window.handleClassSelection = handleClassSelection;
     window.handleBookingSelection = handleBookingSelection;
 
-    // Initial load
-    // if (USER_ID) {
-    //     authSection.style.display = 'none';
-    //     navBar.style.display = 'flex';
-    //     classesSection.style.display = 'block';
-    //     bookingsSection.style.display = 'block';
-    //     adminSection.style.display = 'block';
-    //     refreshData();
-    // }
 </script>
 </body>
 </html>

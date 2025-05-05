@@ -1,5 +1,5 @@
 import re
-from flask import Flask, request, jsonify, Response, redirect, url_for, render_template_string
+from flask import Flask, request, jsonify, Response, redirect, url_for, render_template_string,session
 from flask_cors import CORS
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -19,6 +19,11 @@ app = Flask(__name__)
 CORS(app)
 app.config['SECRET_KEY'] = os.getenv('CORS_SECRET_KEY')
 app.config['VERIFICATION_TOKEN_EXPIRY'] = 24  # Hours
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
+
+@app.before_request
+def before_request():
+    session.modified = True
 
 # Azure SQL Database connection parameters
 server = os.getenv('DB_SERVER')
@@ -826,6 +831,8 @@ def login():
     if not user.is_verified:
         return jsonify({'error': 'Please verify your email before logging in', 'unverified': True}), 401
 
+    session.permanent = True
+
     login_user(user)
     return jsonify({'message': 'Logged in successfully!', 'user_id': user.id}), 200
 
@@ -977,6 +984,14 @@ def cancel_booking(booking_id):
 @login_required
 def get_bookings():
     return jsonify(Booking.get_user_active_bookings(current_user.id))
+
+@app.route('/api/check-session', methods=['GET'])
+@login_required
+def check_session():
+    if current_user.is_authenticated:
+        return jsonify({'authenticated': True}), 200
+    else:
+        return jsonify({'authenticated': False, 'message': 'Session expired'}), 401
 
 def root_dir():  # pragma: no cover
     return os.path.abspath(os.path.dirname(__file__))
