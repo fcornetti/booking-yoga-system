@@ -33,7 +33,15 @@ password = os.getenv('DB_PASSWORD')
 driver = '{ODBC Driver 18 for SQL Server}'  # Make sure this driver is installed
 
 # Create connection string
-conn_string = f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}'
+conn_string = (
+    f'DRIVER={driver};'
+    f'SERVER={server};'
+    f'DATABASE={database};'
+    f'UID={username};'
+    f'PWD={password};'
+    'Encrypt=yes;'
+    'TrustServerCertificate=yes;'
+)
 
 # Function to get database connection
 def get_db_connection():
