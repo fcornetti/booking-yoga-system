@@ -142,59 +142,58 @@ def db_cursor(connection):
 def init_db():
     """Initialize database tables if they don't exist"""
     with db_connection() as conn:
-        cursor = conn.cursor()
+        with db_cursor(conn) as cursor:
+            # Create User table if it doesn't exist
+            cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Users')
+            BEGIN
+                CREATE TABLE Users (
+                    id INT PRIMARY KEY IDENTITY(1,1),
+                    name NVARCHAR(100) NOT NULL,
+                    surname NVARCHAR(100) NOT NULL,
+                    email NVARCHAR(120) NOT NULL UNIQUE,
+                    password_hash NVARCHAR(128) NOT NULL,
+                    is_verified BIT DEFAULT 0,
+                    verification_token NVARCHAR(100) DEFAULT NULL,
+                    token_expiry DATETIME NULL
+                )
+            END
+            """)
 
-        # Create User table if it doesn't exist
-        cursor.execute("""
-        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Users')
-        BEGIN
-            CREATE TABLE Users (
-                id INT PRIMARY KEY IDENTITY(1,1),
-                name NVARCHAR(100) NOT NULL,
-                surname NVARCHAR(100) NOT NULL,
-                email NVARCHAR(120) NOT NULL UNIQUE,
-                password_hash NVARCHAR(128) NOT NULL,
-                is_verified BIT DEFAULT 0,
-                verification_token NVARCHAR(100) DEFAULT NULL,
-                token_expiry DATETIME NULL
-            )
-        END
-        """)
+            # Create YogaClass table if it doesn't exist
+            cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'YogaClasses')
+            BEGIN
+                CREATE TABLE YogaClasses (
+                    id INT PRIMARY KEY IDENTITY(1,1),
+                    name NVARCHAR(100) NOT NULL,
+                    instructor NVARCHAR(100) NOT NULL,
+                    date_time DATETIME NOT NULL,
+                    duration INT NOT NULL DEFAULT 75,
+                    capacity INT NOT NULL,
+                    status NVARCHAR(20) DEFAULT 'active',
+                    location NVARCHAR(200) NOT NULL
+                )
+            END
+            """)
 
-        # Create YogaClass table if it doesn't exist
-        cursor.execute("""
-        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'YogaClasses')
-        BEGIN
-            CREATE TABLE YogaClasses (
-                id INT PRIMARY KEY IDENTITY(1,1),
-                name NVARCHAR(100) NOT NULL,
-                instructor NVARCHAR(100) NOT NULL,
-                date_time DATETIME NOT NULL,
-                duration INT NOT NULL DEFAULT 75,
-                capacity INT NOT NULL,
-                status NVARCHAR(20) DEFAULT 'active',
-                location NVARCHAR(200) NOT NULL
-            )
-        END
-        """)
+            # Create Booking table if it doesn't exist
+            cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Bookings')
+            BEGIN
+                CREATE TABLE Bookings (
+                    id INT PRIMARY KEY IDENTITY(1,1),
+                    user_id INT NOT NULL,
+                    class_id INT NOT NULL,
+                    booking_date DATETIME DEFAULT GETDATE(),
+                    status NVARCHAR(20) DEFAULT 'active',
+                    FOREIGN KEY (user_id) REFERENCES Users(id),
+                    FOREIGN KEY (class_id) REFERENCES YogaClasses(id)
+                )
+            END
+            """)
 
-        # Create Booking table if it doesn't exist
-        cursor.execute("""
-        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Bookings')
-        BEGIN
-            CREATE TABLE Bookings (
-                id INT PRIMARY KEY IDENTITY(1,1),
-                user_id INT NOT NULL,
-                class_id INT NOT NULL,
-                booking_date DATETIME DEFAULT GETDATE(),
-                status NVARCHAR(20) DEFAULT 'active',
-                FOREIGN KEY (user_id) REFERENCES Users(id),
-                FOREIGN KEY (class_id) REFERENCES YogaClasses(id)
-            )
-        END
-        """)
-
-        conn.commit()
+            conn.commit()
 
 # Initialize database on startup
 with app.app_context():
@@ -224,13 +223,13 @@ class User(UserMixin):
     def update_verification_status(self):
         """Update the user's verification status"""
         with db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-            UPDATE Users 
-            SET is_verified = 1, verification_token = NULL, token_expiry = NULL 
-            WHERE id = ?
-            """, self.id)
-            conn.commit()
+            with db_cursor(conn) as cursor:
+                cursor.execute("""
+                UPDATE Users 
+                SET is_verified = 1, verification_token = NULL, token_expiry = NULL 
+                WHERE id = ?
+                """, self.id)
+                conn.commit()
 
         self.is_verified = True
         self.verification_token = None
@@ -243,13 +242,13 @@ class User(UserMixin):
         expiry = datetime.utcnow() + timedelta(hours=app.config['VERIFICATION_TOKEN_EXPIRY'])
 
         with db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-            UPDATE Users 
-            SET verification_token = ?, token_expiry = ? 
-            WHERE id = ?
-            """, token, expiry, self.id)
-            conn.commit()
+            with db_cursor(conn) as cursor:
+                cursor.execute("""
+                UPDATE Users 
+                SET verification_token = ?, token_expiry = ? 
+                WHERE id = ?
+                """, token, expiry, self.id)
+                conn.commit()
 
         self.verification_token = token
         self.token_expiry = expiry
@@ -270,16 +269,16 @@ class User(UserMixin):
             raise ValueError("Invalid email format")
 
         with db_connection() as conn:
-            cursor = conn.cursor()
-            # Insert user into database
-            cursor.execute("""
-            INSERT INTO Users (name, surname, email, password_hash, is_verified, verification_token, token_expiry)
-            VALUES (?, ?, ?, ?, 0, ?, ?)
-            """, name, surname, email, password_hash, verification_token, token_expiry)
+            with db_cursor(conn) as cursor:
+                # Insert user into database
+                cursor.execute("""
+                INSERT INTO Users (name, surname, email, password_hash, is_verified, verification_token, token_expiry)
+                VALUES (?, ?, ?, ?, 0, ?, ?)
+                """, name, surname, email, password_hash, verification_token, token_expiry)
 
-            cursor.execute("SELECT @@IDENTITY")
-            user_id = cursor.fetchone()[0]
-            conn.commit()
+                cursor.execute("SELECT @@IDENTITY")
+                user_id = cursor.fetchone()[0]
+                conn.commit()
 
         # Return user object
         return cls(
@@ -406,56 +405,56 @@ class YogaClass:
             raise ValueError("Cannot create a class in the past")
 
         with db_connection() as conn:
-            cursor = conn.cursor()
-            if self.id is None:
-                cursor.execute("""
-                INSERT INTO YogaClasses (name, instructor, date_time, duration, capacity, status, location)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, self.name, self.instructor, self.date_time, self.duration,
-                               self.capacity, self.status, self.location)
+            with db_cursor(conn) as cursor:
+                if self.id is None:
+                    cursor.execute("""
+                    INSERT INTO YogaClasses (name, instructor, date_time, duration, capacity, status, location)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, self.name, self.instructor, self.date_time, self.duration,
+                                   self.capacity, self.status, self.location)
 
-                cursor.execute("SELECT @@IDENTITY")
-                self.id = cursor.fetchone()[0]
-            else:
-                # This is an existing class being updated
-                cursor.execute("""
-                UPDATE YogaClasses 
-                SET name = ?, instructor = ?, date_time = ?, duration = ?, capacity = ?, status = ?, location = ?
-                WHERE id = ?
-                """, self.name, self.instructor, self.date_time, self.duration,
-                               self.capacity, self.status, self.location, self.id)
+                    cursor.execute("SELECT @@IDENTITY")
+                    self.id = cursor.fetchone()[0]
+                else:
+                    # This is an existing class being updated
+                    cursor.execute("""
+                    UPDATE YogaClasses 
+                    SET name = ?, instructor = ?, date_time = ?, duration = ?, capacity = ?, status = ?, location = ?
+                    WHERE id = ?
+                    """, self.name, self.instructor, self.date_time, self.duration,
+                                   self.capacity, self.status, self.location, self.id)
 
-            conn.commit()
+                conn.commit()
         return self.id
 
     def cancel(self):
         """Cancel this yoga class and all associated bookings"""
         with db_connection() as conn:
-            cursor = conn.cursor()
-            # Update the class status to cancelled
-            self.status = 'cancelled'
-            cursor.execute("UPDATE YogaClasses SET status = 'cancelled' WHERE id = ?", self.id)
+            with db_cursor(conn) as cursor:
+                # Update the class status to cancelled
+                self.status = 'cancelled'
+                cursor.execute("UPDATE YogaClasses SET status = 'cancelled' WHERE id = ?", self.id)
 
-            # Update all active bookings for this class to cancelled
-            cursor.execute("UPDATE Bookings SET status = 'cancelled' WHERE class_id = ? AND status = 'active'", self.id)
+                # Update all active bookings for this class to cancelled
+                cursor.execute("UPDATE Bookings SET status = 'cancelled' WHERE class_id = ? AND status = 'active'", self.id)
 
-            # Get the count of affected bookings
-            cursor.execute("SELECT @@ROWCOUNT")
-            affected_bookings = cursor.fetchone()[0]
+                # Get the count of affected bookings
+                cursor.execute("SELECT @@ROWCOUNT")
+                affected_bookings = cursor.fetchone()[0]
 
-            conn.commit()
+                conn.commit()
         return affected_bookings
 
     def get_booking_count(self):
         """Get the number of active bookings for this class"""
         with db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-            SELECT COUNT(*) 
-            FROM Bookings 
-            WHERE class_id = ? AND status = 'active'
-            """, self.id)
-            count = cursor.fetchone()[0]
+            with db_cursor(conn) as cursor:
+                cursor.execute("""
+                SELECT COUNT(*) 
+                FROM Bookings 
+                WHERE class_id = ? AND status = 'active'
+                """, self.id)
+                count = cursor.fetchone()[0]
         return count
 
     def spots_left(self):
@@ -470,13 +469,13 @@ class YogaClass:
     def get_by_id(cls, class_id):
         """Get a yoga class by ID"""
         with db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-            SELECT id, name, instructor, date_time, duration, capacity, status, location 
-            FROM YogaClasses 
-            WHERE id = ?
-            """, class_id)
-            row = cursor.fetchone()
+            with db_cursor(conn) as cursor:
+                cursor.execute("""
+                SELECT id, name, instructor, date_time, duration, capacity, status, location 
+                FROM YogaClasses 
+                WHERE id = ?
+                """, class_id)
+                row = cursor.fetchone()
 
         if row:
             return cls(
@@ -606,59 +605,58 @@ class Booking:
             raise ValueError(f"Class {self.class_id} is fully booked")
 
         with db_connection() as conn:
-            cursor = conn.cursor()
-
-            # Check if user already has a booking for this class
-            cursor.execute("""
-            SELECT COUNT(*) FROM Bookings 
-            WHERE class_id = ? AND user_id = ? AND status = 'active'
-            """, self.class_id, self.user_id)
-            current_booking = cursor.fetchone()[0]
-
-            if current_booking > 0:
-                raise ValueError(f"User {self.user_id} has already booked for class {self.class_id}")
-
-            # Check for overlapping bookings
-            cursor.execute("""
-            SELECT COUNT(*) FROM Bookings B
-            JOIN YogaClasses YC1 ON B.class_id = YC1.id
-            JOIN YogaClasses YC2 ON YC2.id = ?
-            WHERE B.user_id = ? AND B.status = 'active' AND YC1.date_time = YC2.date_time
-            """, self.class_id, self.user_id)
-
-            overlapping_booking = cursor.fetchone()[0]
-
-            if overlapping_booking > 0:
-                raise ValueError(f"User {self.user_id} already has an active booking at the same time")
-
-            if self.id is None:
-                # Create the booking
+            with db_cursor(conn) as cursor:
+                # Check if user already has a booking for this class
                 cursor.execute("""
-                INSERT INTO Bookings (user_id, class_id, booking_date, status)
-                VALUES (?, ?, GETDATE(), ?)
-                """, self.user_id, self.class_id, self.status)
+                SELECT COUNT(*) FROM Bookings 
+                WHERE class_id = ? AND user_id = ? AND status = 'active'
+                """, self.class_id, self.user_id)
+                current_booking = cursor.fetchone()[0]
 
-                cursor.execute("SELECT @@IDENTITY")
-                self.id = cursor.fetchone()[0]
-            else:
-                # Update existing booking
+                if current_booking > 0:
+                    raise ValueError(f"User {self.user_id} has already booked for class {self.class_id}")
+
+                # Check for overlapping bookings
                 cursor.execute("""
-                UPDATE Bookings 
-                SET user_id = ?, class_id = ?, status = ?
-                WHERE id = ?
-                """, self.user_id, self.class_id, self.status, self.id)
+                SELECT COUNT(*) FROM Bookings B
+                JOIN YogaClasses YC1 ON B.class_id = YC1.id
+                JOIN YogaClasses YC2 ON YC2.id = ?
+                WHERE B.user_id = ? AND B.status = 'active' AND YC1.date_time = YC2.date_time
+                """, self.class_id, self.user_id)
 
-            conn.commit()
+                overlapping_booking = cursor.fetchone()[0]
+
+                if overlapping_booking > 0:
+                    raise ValueError(f"User {self.user_id} already has an active booking at the same time")
+
+                if self.id is None:
+                    # Create the booking
+                    cursor.execute("""
+                    INSERT INTO Bookings (user_id, class_id, booking_date, status)
+                    VALUES (?, ?, GETDATE(), ?)
+                    """, self.user_id, self.class_id, self.status)
+
+                    cursor.execute("SELECT @@IDENTITY")
+                    self.id = cursor.fetchone()[0]
+                else:
+                    # Update existing booking
+                    cursor.execute("""
+                    UPDATE Bookings 
+                    SET user_id = ?, class_id = ?, status = ?
+                    WHERE id = ?
+                    """, self.user_id, self.class_id, self.status, self.id)
+
+                conn.commit()
 
         return self.id
 
     def cancel(self):
         """Cancel this booking"""
         with db_connection() as conn:
-            cursor = conn.cursor()
-            self.status = 'cancelled'
-            cursor.execute("UPDATE Bookings SET status = 'cancelled' WHERE id = ?", self.id)
-            conn.commit()
+            with db_cursor(conn) as cursor:
+                self.status = 'cancelled'
+                cursor.execute("UPDATE Bookings SET status = 'cancelled' WHERE id = ?", self.id)
+                conn.commit()
         return True
 
     def to_dict(self):
@@ -703,13 +701,13 @@ class Booking:
     def get_by_id(cls, booking_id):
         """Get a booking by ID"""
         with db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-            SELECT id, user_id, class_id, booking_date, status 
-            FROM Bookings 
-            WHERE id = ?
-            """, booking_id)
-            row = cursor.fetchone()
+            with db_cursor(conn) as cursor:
+                cursor.execute("""
+                SELECT id, user_id, class_id, booking_date, status 
+                FROM Bookings 
+                WHERE id = ?
+                """, booking_id)
+                row = cursor.fetchone()
 
         if row:
             return cls(
@@ -928,17 +926,17 @@ def logout():
 @app.route('/users', methods=['GET'])
 def get_users():
     with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, name, surname, email, is_verified FROM Users")
-        users = []
-        for row in cursor.fetchall():
-            users.append({
-                'id': row[0],
-                'name': row[1],
-                'surname': row[2],
-                'email': row[3],
-                'is_verified': bool(row[4])
-            })
+        with db_cursor(conn) as cursor:
+            cursor.execute("SELECT id, name, surname, email, is_verified FROM Users")
+            users = []
+            for row in cursor.fetchall():
+                users.append({
+                    'id': row[0],
+                    'name': row[1],
+                    'surname': row[2],
+                    'email': row[3],
+                    'is_verified': bool(row[4])
+                })
     return jsonify(users)
 
 # Yoga class routes - Updated to use OO YogaClass
