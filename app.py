@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import contextlib
 from typing import Optional, List, Dict, Any, Union
 from dotenv import load_dotenv
+import time
 
 # Load environment variables
 load_dotenv()
@@ -40,6 +41,10 @@ DB_CONFIG = {
 }
 
 # Set up connection string
+
+connection_timeout = os.getenv('DB_CONNECTION_TIMEOUT')
+
+# Then in your connection string
 DB_CONFIG['conn_string'] = (
     f"DRIVER={DB_CONFIG['driver']};"
     f"SERVER={DB_CONFIG['server']};"
@@ -48,8 +53,9 @@ DB_CONFIG['conn_string'] = (
     f"PWD={DB_CONFIG['password']};"
     "Encrypt=yes;"
     "TrustServerCertificate=yes;"
-    "connection timeout=60;"
+    f"connection timeout={connection_timeout};"
 )
+
 
 # Create a connection pool
 class ConnectionPool:
@@ -98,7 +104,8 @@ class ConnectionPool:
         self._in_use = 0
 
 # Initialize the connection pool
-connection_pool = ConnectionPool(DB_CONFIG['conn_string'])
+pool_size = int(os.getenv('DB_POOL_SIZE', '5'))
+connection_pool = ConnectionPool(DB_CONFIG['conn_string'], max_pool_size=pool_size)
 
 @contextlib.contextmanager
 def db_connection():
@@ -124,6 +131,38 @@ def db_connection():
                 pass
             connection_pool.release_connection(conn)
 
+@contextlib.contextmanager
+def db_connection_with_retry(max_retries=3, initial_delay=5):
+    """Context manager for database connections with exponential backoff retry logic"""
+    retries = 0
+    last_exception = None
+
+    while retries < max_retries:
+        try:
+            with db_connection() as conn:
+                yield conn
+                return
+        except pyodbc.OperationalError as e:
+            # Only retry on timeout or connection errors
+            if 'timeout' in str(e).lower() or 'connection' in str(e).lower():
+                last_exception = e
+                retries += 1
+                # Calculate exponential backoff delay (5, 10, 20 seconds)
+                delay = initial_delay * (2 ** (retries - 1))
+                # Cap the delay at 60 seconds as recommended
+                delay = min(delay, 60)
+                print(f"Connection attempt {retries} failed: {str(e)}. Retrying in {delay} seconds...")
+                time.sleep(delay)
+            else:
+                # Other database errors should not trigger retries
+                raise
+        except Exception as e:
+            # Don't retry on non-connection related errors
+            raise
+
+    # If we get here, all retries failed
+    raise last_exception or Exception("Failed to connect to database after retries")
+
 # Then create a cursor context manager to pair with it
 @contextlib.contextmanager
 def db_cursor(connection):
@@ -141,7 +180,7 @@ def db_cursor(connection):
 
 def init_db():
     """Initialize database tables if they don't exist"""
-    with db_connection() as conn:
+    with db_connection_with_retry() as conn:
         with db_cursor(conn) as cursor:
             # Create User table if it doesn't exist
             cursor.execute("""
@@ -222,7 +261,7 @@ class User(UserMixin):
 
     def update_verification_status(self):
         """Update the user's verification status"""
-        with db_connection() as conn:
+        with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 cursor.execute("""
                 UPDATE Users 
@@ -241,7 +280,7 @@ class User(UserMixin):
         token = secrets.token_urlsafe(32)
         expiry = datetime.utcnow() + timedelta(hours=app.config['VERIFICATION_TOKEN_EXPIRY'])
 
-        with db_connection() as conn:
+        with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 cursor.execute("""
                 UPDATE Users 
@@ -268,7 +307,7 @@ class User(UserMixin):
         if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
             raise ValueError("Invalid email format")
 
-        with db_connection() as conn:
+        with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 # Insert user into database
                 cursor.execute("""
@@ -296,7 +335,7 @@ class User(UserMixin):
     def get_user_by_email(cls, email):
         """Get a user by email"""
         try:
-            with db_connection() as conn:
+            with db_connection_with_retry() as conn:
                 with db_cursor(conn) as cursor:
                     cursor.execute("""
                     SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
@@ -327,7 +366,7 @@ class User(UserMixin):
     def get_user_by_id(cls, user_id):
         """Get a user by ID"""
         try:
-            with db_connection() as conn:
+            with db_connection_with_retry() as conn:
                 with db_cursor(conn) as cursor:
                     cursor.execute("""
                     SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
@@ -358,7 +397,7 @@ class User(UserMixin):
     def get_user_by_token(cls, token):
         """Get a user by verification token"""
         try:
-            with db_connection() as conn:
+            with db_connection_with_retry() as conn:
                 with db_cursor(conn) as cursor:
                     cursor.execute("""
                     SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
@@ -404,7 +443,7 @@ class YogaClass:
         if self.date_time < datetime.now():
             raise ValueError("Cannot create a class in the past")
 
-        with db_connection() as conn:
+        with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 if self.id is None:
                     cursor.execute("""
@@ -429,7 +468,7 @@ class YogaClass:
 
     def cancel(self):
         """Cancel this yoga class and all associated bookings"""
-        with db_connection() as conn:
+        with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 # Update the class status to cancelled
                 self.status = 'cancelled'
@@ -447,7 +486,7 @@ class YogaClass:
 
     def get_booking_count(self):
         """Get the number of active bookings for this class"""
-        with db_connection() as conn:
+        with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 cursor.execute("""
                 SELECT COUNT(*) 
@@ -468,7 +507,7 @@ class YogaClass:
     @classmethod
     def get_by_id(cls, class_id):
         """Get a yoga class by ID"""
-        with db_connection() as conn:
+        with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 cursor.execute("""
                 SELECT id, name, instructor, date_time, duration, capacity, status, location 
@@ -493,7 +532,7 @@ class YogaClass:
     @classmethod
     def get_future_active_classes(cls):
         """Get all future active classes with booking counts"""
-        with db_connection() as conn:
+        with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 # Execute a single query that gets both class data and booking counts
                 cursor.execute("""
@@ -604,7 +643,7 @@ class Booking:
         if yoga_class.is_full():
             raise ValueError(f"Class {self.class_id} is fully booked")
 
-        with db_connection() as conn:
+        with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 # Check if user already has a booking for this class
                 cursor.execute("""
@@ -652,7 +691,7 @@ class Booking:
 
     def cancel(self):
         """Cancel this booking"""
-        with db_connection() as conn:
+        with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 self.status = 'cancelled'
                 cursor.execute("UPDATE Bookings SET status = 'cancelled' WHERE id = ?", self.id)
@@ -700,7 +739,7 @@ class Booking:
     @classmethod
     def get_by_id(cls, booking_id):
         """Get a booking by ID"""
-        with db_connection() as conn:
+        with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 cursor.execute("""
                 SELECT id, user_id, class_id, booking_date, status 
@@ -723,7 +762,7 @@ class Booking:
     def get_user_active_bookings(cls, user_id):
         """Get all active bookings for a user"""
         try:
-            with db_connection() as conn:
+            with db_connection_with_retry() as conn:
                 with db_cursor(conn) as cursor:
                     # Get all data in a single query to avoid nested database calls
                     query = """
@@ -925,7 +964,7 @@ def logout():
 
 @app.route('/users', methods=['GET'])
 def get_users():
-    with db_connection() as conn:
+    with db_connection_with_retry() as conn:
         with db_cursor(conn) as cursor:
             cursor.execute("SELECT id, name, surname, email, is_verified FROM Users")
             users = []
