@@ -71,28 +71,15 @@ class ConnectionPool:
         else:
             if self._in_use < self.max_pool_size:
                 conn = pyodbc.connect(self.conn_string, autocommit=False)
-                self._in_use += 1
+                # self._in_use += 1
             else:
                 raise Exception("Connection pool exhausted")
         return conn
 
     def release_connection(self, conn):
-        try:
-            if conn and not conn.closed:
-                # Ensure all cursors are closed
-                try:
-                    # This closes any active statements/cursors
-                    conn.rollback()  # This clears any pending transactions
-                    conn.commit()    # Ensure everything is committed
-                    self._pool.append(conn)
-                except pyodbc.Error as e:
-                    print(f"Error releasing connection: {str(e)}")
-                    self._in_use -= 1
-            else:
-                self._in_use -= 1
-        except pyodbc.Error:
-            # If there's an error with the connection, reduce the count but don't add it back
-            self._in_use -= 1
+        if conn and not conn.closed:
+            # Ensure all cursors are closed
+            conn.close()
 
     def close_all(self):
         for conn in self._pool:
