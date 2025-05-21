@@ -14,6 +14,8 @@ import contextlib
 from typing import Optional, List, Dict, Any, Union
 from dotenv import load_dotenv
 import time
+import threading
+import queue
 
 # Load environment variables
 load_dotenv()
@@ -41,10 +43,8 @@ DB_CONFIG = {
 }
 
 # Set up connection string
-
 connection_timeout = os.getenv('DB_CONNECTION_TIMEOUT')
 
-# Then in your connection string
 DB_CONFIG['conn_string'] = (
     f"DRIVER={DB_CONFIG['driver']};"
     f"SERVER={DB_CONFIG['server']};"
@@ -56,43 +56,139 @@ DB_CONFIG['conn_string'] = (
     f"connection timeout={connection_timeout};"
 )
 
-
-# Create a connection pool
+# Improved connection pool implementation
 class ConnectionPool:
-    def __init__(self, conn_string, max_pool_size=5):
+    def __init__(self, conn_string, max_pool_size=5, min_pool_size=2):
         self.conn_string = conn_string
         self.max_pool_size = max_pool_size
-        self._pool = []
-        self._in_use = 0
+        self.min_pool_size = min_pool_size
+        self._pool = queue.Queue(maxsize=max_pool_size)
+        self._lock = threading.Lock()
+        self._created_connections = 0
+        self._closed = False
+
+        # Initialize minimum connections
+        self._initialize_pool()
+
+    def _initialize_pool(self):
+        """Initialize the pool with minimum connections"""
+        for _ in range(self.min_pool_size):
+            try:
+                conn = self._create_connection()
+                self._pool.put(conn)
+            except Exception as e:
+                print(f"Failed to initialize pool connection: {e}")
+                break
+
+    def _create_connection(self):
+        """Create a new database connection"""
+        with self._lock:
+            if self._created_connections >= self.max_pool_size:
+                raise Exception("Maximum connection limit reached")
+
+            conn = pyodbc.connect(self.conn_string, autocommit=False)
+            self._created_connections += 1
+            return conn
+
+    def _is_connection_valid(self, conn):
+        """Check if a connection is still valid"""
+        try:
+            # Simple test query
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+            cursor.close()
+            return True
+        except:
+            return False
 
     def get_connection(self):
-        if self._pool:
-            conn = self._pool.pop()
-        else:
-            if self._in_use < self.max_pool_size:
-                conn = pyodbc.connect(self.conn_string, autocommit=False)
-                # self._in_use += 1
+        """Get a connection from the pool"""
+        if self._closed:
+            raise Exception("Connection pool is closed")
+
+        # Try to get a connection from the pool
+        try:
+            # Try to get a connection with a short timeout
+            conn = self._pool.get(timeout=1)
+
+            # Validate the connection
+            if self._is_connection_valid(conn):
+                return conn
             else:
-                raise Exception("Connection pool exhausted")
-        return conn
+                # Connection is invalid, create a new one
+                self._created_connections -= 1  # Decrement count for the invalid connection
+                return self._create_connection()
+
+        except queue.Empty:
+            # No connections available, create a new one if under limit
+            return self._create_connection()
 
     def release_connection(self, conn):
-        if conn and not conn.closed:
-            # Ensure all cursors are closed
-            conn.close()
+        """Return a connection to the pool"""
+        if self._closed or not conn:
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+            return
+
+        # Rollback any uncommitted transactions
+        try:
+            conn.rollback()
+        except:
+            pass
+
+        # Validate connection before returning to pool
+        if self._is_connection_valid(conn):
+            try:
+                self._pool.put_nowait(conn)
+            except queue.Full:
+                # Pool is full, close this connection
+                try:
+                    conn.close()
+                    with self._lock:
+                        self._created_connections -= 1
+                except:
+                    pass
+        else:
+            # Connection is invalid, close it
+            try:
+                conn.close()
+                with self._lock:
+                    self._created_connections -= 1
+            except:
+                pass
 
     def close_all(self):
-        for conn in self._pool:
+        """Close all connections in the pool"""
+        self._closed = True
+
+        # Close all connections in the queue
+        while not self._pool.empty():
             try:
+                conn = self._pool.get_nowait()
                 conn.close()
             except:
                 pass
-        self._pool = []
-        self._in_use = 0
+
+        with self._lock:
+            self._created_connections = 0
+
+    def get_pool_stats(self):
+        """Get pool statistics for monitoring"""
+        return {
+            'pool_size': self._pool.qsize(),
+            'created_connections': self._created_connections,
+            'max_pool_size': self.max_pool_size,
+            'is_closed': self._closed
+        }
 
 # Initialize the connection pool
 pool_size = int(os.getenv('DB_POOL_SIZE', '5'))
-connection_pool = ConnectionPool(DB_CONFIG['conn_string'], max_pool_size=pool_size)
+min_pool_size = max(2, pool_size // 2)  # Minimum is half of max, at least 2
+connection_pool = ConnectionPool(DB_CONFIG['conn_string'], max_pool_size=pool_size, min_pool_size=min_pool_size)
 
 @contextlib.contextmanager
 def db_connection():
@@ -110,10 +206,10 @@ def db_connection():
         raise e
     finally:
         if conn:
-            # Ensure any cursor is closed before returning connection to pool
+            # Close any open cursors before returning connection to pool
             try:
-                # This is a special technique to close all active cursors on the connection
-                conn.cursor().close()
+                # This ensures any open cursors are closed
+                conn.execute("-- connection cleanup")
             except:
                 pass
             connection_pool.release_connection(conn)
@@ -134,12 +230,13 @@ def db_connection_with_retry(max_retries=3, initial_delay=5):
             if 'timeout' in str(e).lower() or 'connection' in str(e).lower():
                 last_exception = e
                 retries += 1
-                # Calculate exponential backoff delay (5, 10, 20 seconds)
-                delay = initial_delay * (2 ** (retries - 1))
-                # Cap the delay at 60 seconds as recommended
-                delay = min(delay, 60)
-                print(f"Connection attempt {retries} failed: {str(e)}. Retrying in {delay} seconds...")
-                time.sleep(delay)
+                if retries < max_retries:  # Don't sleep on the last attempt
+                    # Calculate exponential backoff delay (5, 10, 20 seconds)
+                    delay = initial_delay * (2 ** (retries - 1))
+                    # Cap the delay at 60 seconds
+                    delay = min(delay, 60)
+                    print(f"Connection attempt {retries} failed: {str(e)}. Retrying in {delay} seconds...")
+                    time.sleep(delay)
             else:
                 # Other database errors should not trigger retries
                 raise
@@ -150,7 +247,6 @@ def db_connection_with_retry(max_retries=3, initial_delay=5):
     # If we get here, all retries failed
     raise last_exception or Exception("Failed to connect to database after retries")
 
-# Then create a cursor context manager to pair with it
 @contextlib.contextmanager
 def db_cursor(connection):
     """Context manager for database cursors"""
@@ -1039,6 +1135,13 @@ def check_session():
     else:
         return jsonify({'authenticated': False, 'message': 'Session expired'}), 401
 
+# Add a route to check pool health
+@app.route('/api/pool-status', methods=['GET'])
+def pool_status():
+    """Get connection pool status for monitoring"""
+    stats = connection_pool.get_pool_stats()
+    return jsonify(stats)
+
 def root_dir():  # pragma: no cover
     return os.path.abspath(os.path.dirname(__file__))
 
@@ -1068,5 +1171,19 @@ def get_resource(path):  # pragma: no cover
     content = get_file(complete_path)
     return Response(content, mimetype=mimetype)
 
+# Cleanup function for graceful shutdown
+@app.teardown_appcontext
+def close_db(error):
+    """Close the pool when the app context tears down"""
+    pass  # The pool will be closed when the app shuts down
+
+# Register a function to close the pool on app shutdown
+import atexit
+atexit.register(connection_pool.close_all)
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=True, port=8000)
+    try:
+        app.run(host='0.0.0.0', debug=True, port=8000)
+    finally:
+        # Ensure pool is closed on shutdown
+        connection_pool.close_all()
