@@ -3,7 +3,7 @@
 
 This is a full-stack web application for managing yoga class bookings. It allows users to sign up, log in, verify their email, book yoga classes, and manage their bookings. Admin users can manage classes and users, including manual verification and viewing verification tokens.
 
-## 🌐 Live Demo
+## 🌐 Live 
 
 > _https://jantinevanwijlickbooking-e5ehekcmb5gkg2ha.italynorth-01.azurewebsites.net._
 
