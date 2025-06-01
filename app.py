@@ -5,17 +5,16 @@ from flask_login import LoginManager, UserMixin, login_user, login_required, log
 from werkzeug.security import generate_password_hash, check_password_hash
 import os.path
 import secrets
-import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import pyodbc
 from datetime import datetime, timedelta
 import contextlib
-from typing import Optional, List, Dict, Any, Union
 from dotenv import load_dotenv
 import time
 import threading
 import queue
+import sqlite3
 
 # Load environment variables
 load_dotenv()
@@ -26,38 +25,228 @@ CORS(app)
 app.config['SECRET_KEY'] = os.getenv('CORS_SECRET_KEY')
 app.config['VERIFICATION_TOKEN_EXPIRY'] = 24  # Hours
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 # Configure session handling
 @app.before_request
 def before_request():
     session.modified = True
 
-# Database configuration
-DB_CONFIG = {
-    'server': os.getenv('DB_SERVER'),
-    'database': os.getenv('DB_NAME'),
-    'username': os.getenv('DB_USERNAME'),
-    'password': os.getenv('DB_PASSWORD'),
-    'driver': '{ODBC Driver 18 for SQL Server}',
-    'conn_string': None
-}
+# Database configuration with environment detection
+def get_database_config():
+    """
+    Get database configuration based on environment.
+    Like choosing between your workshop (local) and factory (production).
+    """
 
-# Set up connection string
-connection_timeout = os.getenv('DB_CONNECTION_TIMEOUT')
+    # Detect if running locally
+    is_local = (
+            os.getenv('FLASK_ENV') == 'development' or
+            os.getenv('ENVIRONMENT') == 'local' or
+            'localhost' in os.getenv('FLASK_RUN_HOST', '') or
+            os.getenv('DB_USE_LOCAL', 'false').lower() == 'true'
+    )
 
-DB_CONFIG['conn_string'] = (
-    f"DRIVER={DB_CONFIG['driver']};"
-    f"SERVER={DB_CONFIG['server']};"
-    f"DATABASE={DB_CONFIG['database']};"
-    f"UID={DB_CONFIG['username']};"
-    f"PWD={DB_CONFIG['password']};"
-    "Encrypt=yes;"
-    "TrustServerCertificate=yes;"
-    f"connection timeout={connection_timeout};"
-)
+    if is_local:
+        # Local SQLite configuration
+        db_path = os.getenv('LOCAL_DB_PATH', 'yoga_booking_local.db')
+        return {
+            'type': 'sqlite',
+            'database': db_path,
+            'conn_string': db_path
+        }
+    else:
+        # Production Azure SQL Server configuration
+        connection_timeout = os.getenv('DB_CONNECTION_TIMEOUT', '30')
 
-# Improved connection pool implementation
-class ConnectionPool:
+        return {
+            'type': 'sqlserver',
+            'server': os.getenv('DB_SERVER'),
+            'database': os.getenv('DB_NAME'),
+            'username': os.getenv('DB_USERNAME'),
+            'password': os.getenv('DB_PASSWORD'),
+            'driver': '{ODBC Driver 18 for SQL Server}',
+            'conn_string': (
+                f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+                f"SERVER={os.getenv('DB_SERVER')};"
+                f"DATABASE={os.getenv('DB_NAME')};"
+                f"UID={os.getenv('DB_USERNAME')};"
+                f"PWD={os.getenv('DB_PASSWORD')};"
+                "Encrypt=yes;"
+                "TrustServerCertificate=yes;"
+                f"Connection Timeout={connection_timeout};"
+                f"Login Timeout=120;"
+            )
+        }
+
+# Get database configuration
+DB_CONFIG = get_database_config()
+print(f"Using {DB_CONFIG['type']} database: {DB_CONFIG.get('database', DB_CONFIG.get('server'))}")
+
+def get_sql_queries():
+    """Get SQL queries appropriate for the database type"""
+    if DB_CONFIG['type'] == 'sqlite':
+        return {
+            'create_users_table': """
+            CREATE TABLE IF NOT EXISTS Users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                surname TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                is_verified INTEGER DEFAULT 0,
+                verification_token TEXT DEFAULT NULL,
+                token_expiry DATETIME NULL
+            )
+            """,
+            'create_yoga_classes_table': """
+            CREATE TABLE IF NOT EXISTS YogaClasses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                instructor TEXT NOT NULL,
+                date_time DATETIME NOT NULL,
+                duration INTEGER NOT NULL DEFAULT 75,
+                capacity INTEGER NOT NULL,
+                status TEXT DEFAULT 'active',
+                location TEXT NOT NULL
+            )
+            """,
+            'create_bookings_table': """
+            CREATE TABLE IF NOT EXISTS Bookings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                class_id INTEGER NOT NULL,
+                booking_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'active',
+                FOREIGN KEY (user_id) REFERENCES Users(id),
+                FOREIGN KEY (class_id) REFERENCES YogaClasses(id)
+            )
+            """,
+            'get_identity': 'SELECT last_insert_rowid()',
+            'get_current_timestamp': 'CURRENT_TIMESTAMP',
+            'get_date_now': 'datetime("now")'
+        }
+    else:
+        return {
+            'create_users_table': """
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Users')
+            BEGIN
+                CREATE TABLE Users (
+                    id INT PRIMARY KEY IDENTITY(1,1),
+                    name NVARCHAR(100) NOT NULL,
+                    surname NVARCHAR(100) NOT NULL,
+                    email NVARCHAR(120) NOT NULL UNIQUE,
+                    password_hash NVARCHAR(128) NOT NULL,
+                    is_verified BIT DEFAULT 0,
+                    verification_token NVARCHAR(100) DEFAULT NULL,
+                    token_expiry DATETIME NULL
+                )
+            END
+            """,
+            'create_yoga_classes_table': """
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'YogaClasses')
+            BEGIN
+                CREATE TABLE YogaClasses (
+                    id INT PRIMARY KEY IDENTITY(1,1),
+                    name NVARCHAR(100) NOT NULL,
+                    instructor NVARCHAR(100) NOT NULL,
+                    date_time DATETIME NOT NULL,
+                    duration INT NOT NULL DEFAULT 75,
+                    capacity INT NOT NULL,
+                    status NVARCHAR(20) DEFAULT 'active',
+                    location NVARCHAR(200) NOT NULL
+                )
+            END
+            """,
+            'create_bookings_table': """
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Bookings')
+            BEGIN
+                CREATE TABLE Bookings (
+                    id INT PRIMARY KEY IDENTITY(1,1),
+                    user_id INT NOT NULL,
+                    class_id INT NOT NULL,
+                    booking_date DATETIME DEFAULT GETDATE(),
+                    status NVARCHAR(20) DEFAULT 'active',
+                    FOREIGN KEY (user_id) REFERENCES Users(id),
+                    FOREIGN KEY (class_id) REFERENCES YogaClasses(id)
+                )
+            END
+            """,
+            'get_identity': 'SELECT @@IDENTITY',
+            'get_current_timestamp': 'GETDATE()',
+            'get_date_now': 'GETDATE()'
+        }
+
+SQL_QUERIES = get_sql_queries()
+
+# Configure SQLite to automatically handle datetime conversion
+def adapt_datetime(dt):
+    """Convert datetime to ISO string for SQLite storage"""
+    return dt.isoformat()
+
+def convert_datetime(s):
+    """Convert ISO string back to datetime when reading from SQLite"""
+    try:
+        # Handle both with and without microseconds
+        if '.' in s.decode():
+            return datetime.fromisoformat(s.decode())
+        else:
+            return datetime.fromisoformat(s.decode())
+    except:
+        # If conversion fails, try strptime as fallback
+        try:
+            return datetime.strptime(s.decode(), '%Y-%m-%d %H:%M:%S')
+        except:
+            return s.decode()  # Return as string if all else fails
+
+# Register the converters
+sqlite3.register_adapter(datetime, adapt_datetime)
+sqlite3.register_converter("DATETIME", convert_datetime)
+
+# Database connection classes
+class SQLiteConnectionPool:
+    """Simple SQLite connection manager (SQLite doesn't need true pooling)"""
+
+    def __init__(self, db_path):
+        self.db_path = db_path
+        self._lock = threading.Lock()
+
+    def get_connection(self):
+        """Get a SQLite connection with datetime conversion enabled"""
+        conn = sqlite3.connect(
+            self.db_path,
+            check_same_thread=False,
+            detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES
+        )
+        # Enable foreign keys in SQLite
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+
+    def release_connection(self, conn):
+        """Close SQLite connection"""
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+
+    def close_all(self):
+        """No-op for SQLite"""
+        pass
+
+    def get_pool_stats(self):
+        """Return dummy stats for SQLite"""
+        return {
+            'pool_size': 1,
+            'created_connections': 1,
+            'max_pool_size': 1,
+            'is_closed': False
+        }
+
+class SQLServerConnectionPool:
+    """Original SQL Server connection pool implementation"""
+
     def __init__(self, conn_string, max_pool_size=5, min_pool_size=2):
         self.conn_string = conn_string
         self.max_pool_size = max_pool_size
@@ -93,7 +282,6 @@ class ConnectionPool:
     def _is_connection_valid(self, conn):
         """Check if a connection is still valid"""
         try:
-            # Simple test query
             cursor = conn.cursor()
             cursor.execute("SELECT 1")
             cursor.fetchone()
@@ -107,21 +295,14 @@ class ConnectionPool:
         if self._closed:
             raise Exception("Connection pool is closed")
 
-        # Try to get a connection from the pool
         try:
-            # Try to get a connection with a short timeout
             conn = self._pool.get(timeout=1)
-
-            # Validate the connection
             if self._is_connection_valid(conn):
                 return conn
             else:
-                # Connection is invalid, create a new one
-                self._created_connections -= 1  # Decrement count for the invalid connection
+                self._created_connections -= 1
                 return self._create_connection()
-
         except queue.Empty:
-            # No connections available, create a new one if under limit
             return self._create_connection()
 
     def release_connection(self, conn):
@@ -134,18 +315,15 @@ class ConnectionPool:
                     pass
             return
 
-        # Rollback any uncommitted transactions
         try:
             conn.rollback()
         except:
             pass
 
-        # Validate connection before returning to pool
         if self._is_connection_valid(conn):
             try:
                 self._pool.put_nowait(conn)
             except queue.Full:
-                # Pool is full, close this connection
                 try:
                     conn.close()
                     with self._lock:
@@ -153,7 +331,6 @@ class ConnectionPool:
                 except:
                     pass
         else:
-            # Connection is invalid, close it
             try:
                 conn.close()
                 with self._lock:
@@ -164,15 +341,12 @@ class ConnectionPool:
     def close_all(self):
         """Close all connections in the pool"""
         self._closed = True
-
-        # Close all connections in the queue
         while not self._pool.empty():
             try:
                 conn = self._pool.get_nowait()
                 conn.close()
             except:
                 pass
-
         with self._lock:
             self._created_connections = 0
 
@@ -185,10 +359,17 @@ class ConnectionPool:
             'is_closed': self._closed
         }
 
-# Initialize the connection pool
-pool_size = int(os.getenv('DB_POOL_SIZE', '5'))
-min_pool_size = max(2, pool_size // 2)  # Minimum is half of max, at least 2
-connection_pool = ConnectionPool(DB_CONFIG['conn_string'], max_pool_size=pool_size, min_pool_size=min_pool_size)
+# Initialize the appropriate connection pool based on database type
+if DB_CONFIG['type'] == 'sqlite':
+    connection_pool = SQLiteConnectionPool(DB_CONFIG['conn_string'])
+else:
+    pool_size = int(os.getenv('DB_POOL_SIZE', '5'))
+    min_pool_size = max(2, pool_size // 2)
+    connection_pool = SQLServerConnectionPool(
+        DB_CONFIG['conn_string'],
+        max_pool_size=pool_size,
+        min_pool_size=min_pool_size
+    )
 
 @contextlib.contextmanager
 def db_connection():
@@ -206,12 +387,6 @@ def db_connection():
         raise e
     finally:
         if conn:
-            # Close any open cursors before returning connection to pool
-            try:
-                # This ensures any open cursors are closed
-                conn.execute("-- connection cleanup")
-            except:
-                pass
             connection_pool.release_connection(conn)
 
 @contextlib.contextmanager
@@ -219,32 +394,30 @@ def db_connection_with_retry(max_retries=3, initial_delay=5):
     """Context manager for database connections with exponential backoff retry logic"""
     retries = 0
     last_exception = None
-
+    print(f"retries {retries}")
     while retries < max_retries:
         try:
             with db_connection() as conn:
                 yield conn
                 return
-        except pyodbc.OperationalError as e:
-            # Only retry on timeout or connection errors
+        except Exception as e:
+            # For SQLite, don't retry on most errors
+            print(f"except Exception as e in db_connection_with_retry {str(e)}")
+            if DB_CONFIG['type'] == 'sqlite':
+                raise
+
+            # For SQL Server, only retry on timeout or connection errors
             if 'timeout' in str(e).lower() or 'connection' in str(e).lower():
                 last_exception = e
                 retries += 1
-                if retries < max_retries:  # Don't sleep on the last attempt
-                    # Calculate exponential backoff delay (5, 10, 20 seconds)
+                if retries < max_retries:
                     delay = initial_delay * (2 ** (retries - 1))
-                    # Cap the delay at 60 seconds
                     delay = min(delay, 60)
                     print(f"Connection attempt {retries} failed: {str(e)}. Retrying in {delay} seconds...")
                     time.sleep(delay)
             else:
-                # Other database errors should not trigger retries
                 raise
-        except Exception as e:
-            # Don't retry on non-connection related errors
-            raise
 
-    # If we get here, all retries failed
     raise last_exception or Exception("Failed to connect to database after retries")
 
 @contextlib.contextmanager
@@ -263,58 +436,16 @@ def db_cursor(connection):
 
 def init_db():
     """Initialize database tables if they don't exist"""
+
     with db_connection_with_retry() as conn:
         with db_cursor(conn) as cursor:
-            # Create User table if it doesn't exist
-            cursor.execute("""
-            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Users')
-            BEGIN
-                CREATE TABLE Users (
-                    id INT PRIMARY KEY IDENTITY(1,1),
-                    name NVARCHAR(100) NOT NULL,
-                    surname NVARCHAR(100) NOT NULL,
-                    email NVARCHAR(120) NOT NULL UNIQUE,
-                    password_hash NVARCHAR(128) NOT NULL,
-                    is_verified BIT DEFAULT 0,
-                    verification_token NVARCHAR(100) DEFAULT NULL,
-                    token_expiry DATETIME NULL
-                )
-            END
-            """)
-
-            # Create YogaClass table if it doesn't exist
-            cursor.execute("""
-            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'YogaClasses')
-            BEGIN
-                CREATE TABLE YogaClasses (
-                    id INT PRIMARY KEY IDENTITY(1,1),
-                    name NVARCHAR(100) NOT NULL,
-                    instructor NVARCHAR(100) NOT NULL,
-                    date_time DATETIME NOT NULL,
-                    duration INT NOT NULL DEFAULT 75,
-                    capacity INT NOT NULL,
-                    status NVARCHAR(20) DEFAULT 'active',
-                    location NVARCHAR(200) NOT NULL
-                )
-            END
-            """)
-
-            # Create Booking table if it doesn't exist
-            cursor.execute("""
-            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Bookings')
-            BEGIN
-                CREATE TABLE Bookings (
-                    id INT PRIMARY KEY IDENTITY(1,1),
-                    user_id INT NOT NULL,
-                    class_id INT NOT NULL,
-                    booking_date DATETIME DEFAULT GETDATE(),
-                    status NVARCHAR(20) DEFAULT 'active',
-                    FOREIGN KEY (user_id) REFERENCES Users(id),
-                    FOREIGN KEY (class_id) REFERENCES YogaClasses(id)
-                )
-            END
-            """)
-
+            # Create tables
+            # cursor.execute(queries['create_users_table'])
+            # cursor.execute(queries['create_yoga_classes_table'])
+            # cursor.execute(queries['create_bookings_table'])
+            cursor.execute(SQL_QUERIES['create_users_table'])
+            cursor.execute(SQL_QUERIES['create_yoga_classes_table'])
+            cursor.execute(SQL_QUERIES['create_bookings_table'])
             conn.commit()
 
 # Initialize database on startup
@@ -325,7 +456,7 @@ with app.app_context():
 login_manager = LoginManager()
 login_manager.init_app(app)
 
-# User model for Flask-Login
+# User model for Flask-Login (keeping your existing User class with minor SQL adaptations)
 class User(UserMixin):
     def __init__(self, id=None, name=None, surname=None, email=None, password_hash=None,
                  is_verified=False, verification_token=None, token_expiry=None):
@@ -350,7 +481,7 @@ class User(UserMixin):
                 UPDATE Users 
                 SET is_verified = 1, verification_token = NULL, token_expiry = NULL 
                 WHERE id = ?
-                """, self.id)
+                """, (self.id,))
                 conn.commit()
 
         self.is_verified = True
@@ -369,7 +500,7 @@ class User(UserMixin):
                 UPDATE Users 
                 SET verification_token = ?, token_expiry = ? 
                 WHERE id = ?
-                """, token, expiry, self.id)
+                """, (token, expiry, self.id))
                 conn.commit()
 
         self.verification_token = token
@@ -379,6 +510,8 @@ class User(UserMixin):
     @classmethod
     def create_user(cls, name, surname, email, password):
         """Create a new user with verification token"""
+        # queries = get_sql_queries()
+
         # Generate password hash
         password_hash = generate_password_hash(password, method='pbkdf2:sha256')
 
@@ -396,9 +529,9 @@ class User(UserMixin):
                 cursor.execute("""
                 INSERT INTO Users (name, surname, email, password_hash, is_verified, verification_token, token_expiry)
                 VALUES (?, ?, ?, ?, 0, ?, ?)
-                """, name, surname, email, password_hash, verification_token, token_expiry)
+                """, (name, surname, email, password_hash, verification_token, token_expiry))
 
-                cursor.execute("SELECT @@IDENTITY")
+                cursor.execute(SQL_QUERIES['get_identity'])
                 user_id = cursor.fetchone()[0]
                 conn.commit()
 
@@ -415,22 +548,21 @@ class User(UserMixin):
         )
 
     @classmethod
-    def get_user_by_email(cls, email):
-        """Get a user by email"""
+    def get_user_by_token(cls, token):
+        """Get a user by verification token"""
         try:
             with db_connection_with_retry() as conn:
                 with db_cursor(conn) as cursor:
                     cursor.execute("""
-                    SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
-                    FROM Users 
-                    WHERE email = ?
-                    """, email)
+                        SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
+                        FROM Users 
+                        WHERE verification_token = ?
+                        """, (token,))
                     row = cursor.fetchone()
 
                     if not row:
                         return None
 
-                    # Create user object outside the cursor context
                     return cls(
                         id=row[0],
                         name=row[1],
@@ -439,7 +571,40 @@ class User(UserMixin):
                         password_hash=row[4],
                         is_verified=bool(row[5]),
                         verification_token=row[6],
-                        token_expiry=row[7]
+                        token_expiry=row[7]  # Already converted to datetime
+                    )
+        except Exception as e:
+            print(f"Error in get_user_by_token: {str(e)}")
+        return None
+
+    @classmethod
+    def get_user_by_email(cls, email):
+        """Get a user by email"""
+        try:
+            print("try")
+            with db_connection_with_retry() as conn:
+                print("db_connection_with_retry() conn")
+                with db_cursor(conn) as cursor:
+                    print("db_cursor(conn) as cursor")
+                    cursor.execute("""
+                        SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
+                        FROM Users 
+                        WHERE email = ?
+                        """, (email,))
+                    row = cursor.fetchone()
+
+                    if not row:
+                        return None
+
+                    return cls(
+                        id=row[0],
+                        name=row[1],
+                        surname=row[2],
+                        email=row[3],
+                        password_hash=row[4],
+                        is_verified=bool(row[5]),
+                        verification_token=row[6],
+                        token_expiry=row[7]  # Already converted to datetime
                     )
         except Exception as e:
             print(f"Error in get_user_by_email: {str(e)}")
@@ -452,16 +617,15 @@ class User(UserMixin):
             with db_connection_with_retry() as conn:
                 with db_cursor(conn) as cursor:
                     cursor.execute("""
-                    SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
-                    FROM Users 
-                    WHERE id = ?
-                    """, user_id)
+                        SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
+                        FROM Users 
+                        WHERE id = ?
+                        """, (user_id,))
                     row = cursor.fetchone()
 
                     if not row:
                         return None
 
-                    # Create user object outside the cursor context
                     return cls(
                         id=row[0],
                         name=row[1],
@@ -470,44 +634,12 @@ class User(UserMixin):
                         password_hash=row[4],
                         is_verified=bool(row[5]),
                         verification_token=row[6],
-                        token_expiry=row[7]
+                        token_expiry=row[7]  # Already converted to datetime
                     )
         except Exception as e:
             print(f"Error in get_user_by_id: {str(e)}")
             return None
 
-    @classmethod
-    def get_user_by_token(cls, token):
-        """Get a user by verification token"""
-        try:
-            with db_connection_with_retry() as conn:
-                with db_cursor(conn) as cursor:
-                    cursor.execute("""
-                    SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
-                    FROM Users 
-                    WHERE verification_token = ?
-                    """, token)
-                    row = cursor.fetchone()
-
-                    if not row:
-                        return None
-
-                    # Create user object outside the cursor context
-                    return cls(
-                        id=row[0],
-                        name=row[1],
-                        surname=row[2],
-                        email=row[3],
-                        password_hash=row[4],
-                        is_verified=bool(row[5]),
-                        verification_token=row[6],
-                        token_expiry=row[7]
-                    )
-        except Exception as e:
-            print(f"Error in get_user_by_token: {str(e)}")
-            return None
-
-# YogaClass model
 class YogaClass:
     def __init__(self, id=None, name=None, instructor=None, date_time=None, duration=75,
                  capacity=None, status='active', location=None):
@@ -526,16 +658,18 @@ class YogaClass:
         if self.date_time < datetime.now():
             raise ValueError("Cannot create a class in the past")
 
+        # queries = get_sql_queries()
+
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 if self.id is None:
                     cursor.execute("""
                     INSERT INTO YogaClasses (name, instructor, date_time, duration, capacity, status, location)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, self.name, self.instructor, self.date_time, self.duration,
-                                   self.capacity, self.status, self.location)
+                    """, (self.name, self.instructor, self.date_time, self.duration,
+                          self.capacity, self.status, self.location))
 
-                    cursor.execute("SELECT @@IDENTITY")
+                    cursor.execute(SQL_QUERIES['get_identity'])
                     self.id = cursor.fetchone()[0]
                 else:
                     # This is an existing class being updated
@@ -543,8 +677,8 @@ class YogaClass:
                     UPDATE YogaClasses 
                     SET name = ?, instructor = ?, date_time = ?, duration = ?, capacity = ?, status = ?, location = ?
                     WHERE id = ?
-                    """, self.name, self.instructor, self.date_time, self.duration,
-                                   self.capacity, self.status, self.location, self.id)
+                    """, (self.name, self.instructor, self.date_time, self.duration,
+                          self.capacity, self.status, self.location, self.id))
 
                 conn.commit()
         return self.id
@@ -555,14 +689,17 @@ class YogaClass:
             with db_cursor(conn) as cursor:
                 # Update the class status to cancelled
                 self.status = 'cancelled'
-                cursor.execute("UPDATE YogaClasses SET status = 'cancelled' WHERE id = ?", self.id)
+                cursor.execute("UPDATE YogaClasses SET status = 'cancelled' WHERE id = ?", (self.id,))
 
                 # Update all active bookings for this class to cancelled
-                cursor.execute("UPDATE Bookings SET status = 'cancelled' WHERE class_id = ? AND status = 'active'", self.id)
+                cursor.execute("UPDATE Bookings SET status = 'cancelled' WHERE class_id = ? AND status = 'active'", (self.id,))
 
-                # Get the count of affected bookings
-                cursor.execute("SELECT @@ROWCOUNT")
-                affected_bookings = cursor.fetchone()[0]
+                # For SQLite, we need to get row count differently
+                if DB_CONFIG['type'] == 'sqlite':
+                    affected_bookings = cursor.rowcount
+                else:
+                    cursor.execute("SELECT @@ROWCOUNT")
+                    affected_bookings = cursor.fetchone()[0]
 
                 conn.commit()
         return affected_bookings
@@ -575,7 +712,7 @@ class YogaClass:
                 SELECT COUNT(*) 
                 FROM Bookings 
                 WHERE class_id = ? AND status = 'active'
-                """, self.id)
+                """, (self.id,))
                 count = cursor.fetchone()[0]
         return count
 
@@ -587,90 +724,17 @@ class YogaClass:
         """Check if the class is fully booked"""
         return self.spots_left() <= 0
 
-    @classmethod
-    def get_by_id(cls, class_id):
-        """Get a yoga class by ID"""
-        with db_connection_with_retry() as conn:
-            with db_cursor(conn) as cursor:
-                cursor.execute("""
-                SELECT id, name, instructor, date_time, duration, capacity, status, location 
-                FROM YogaClasses 
-                WHERE id = ?
-                """, class_id)
-                row = cursor.fetchone()
-
-        if row:
-            return cls(
-                id=row[0],
-                name=row[1],
-                instructor=row[2],
-                date_time=row[3],
-                duration=row[4],
-                capacity=row[5],
-                status=row[6],
-                location=row[7]
-            )
-        return None
-
-    @classmethod
-    def get_future_active_classes(cls):
-        """Get all future active classes with booking counts"""
-        with db_connection_with_retry() as conn:
-            with db_cursor(conn) as cursor:
-                # Execute a single query that gets both class data and booking counts
-                cursor.execute("""
-                SELECT 
-                    YC.id, YC.name, YC.instructor, YC.date_time, YC.duration, 
-                    YC.capacity, YC.status, YC.location,
-                    COUNT(CASE WHEN B.status = 'active' THEN 1 ELSE NULL END) as booking_count
-                FROM YogaClasses YC
-                LEFT JOIN Bookings B ON YC.id = B.class_id
-                WHERE YC.date_time > GETDATE() AND YC.status = 'active'
-                GROUP BY 
-                    YC.id, YC.name, YC.instructor, YC.date_time, YC.duration, 
-                    YC.capacity, YC.status, YC.location
-                """)
-
-                # Fetch all rows at once
-                rows = cursor.fetchall()
-
-            # Process results after the cursor is closed
-            classes = []
-            for row in rows:
-                yoga_class = cls(
-                    id=row[0],
-                    name=row[1],
-                    instructor=row[2],
-                    date_time=row[3],
-                    duration=row[4],
-                    capacity=row[5],
-                    status=row[6],
-                    location=row[7]
-                )
-
-                # Get the booking count from the query result
-                booking_count = row[8]
-
-                # Use the booking_count parameter when calling to_dict
-                class_dict = yoga_class.to_dict(booking_count=booking_count)
-                classes.append(class_dict)
-
-            return classes
-
     def to_dict(self, booking_count=None):
         """Convert class to dictionary format for API responses"""
-        formatted_date_time = self.date_time.strftime('%d/%m/%Y %H:%M') if self.date_time else None
+        formatted_date_time = None
 
         if self.date_time:
             # Calculate end time
             end_time = self.date_time + timedelta(minutes=self.duration)
-
             # Format start time
             start_str = self.date_time.strftime('%d/%m/%Y %H:%M')
-
             # Format end time (only the time part)
             end_str = end_time.strftime('%H:%M')
-
             # Combine them
             formatted_date_time = f"{start_str}-{end_str}"
 
@@ -702,6 +766,88 @@ class YogaClass:
             'location_url': google_maps_url
         }
 
+    @classmethod
+    def get_by_id(cls, class_id):
+        """Get a yoga class by ID"""
+        with db_connection_with_retry() as conn:
+            with db_cursor(conn) as cursor:
+                cursor.execute("""
+                SELECT id, name, instructor, date_time, duration, capacity, status, location 
+                FROM YogaClasses 
+                WHERE id = ?
+                """, (class_id,))
+                row = cursor.fetchone()
+
+        if row:
+            return cls(
+                id=row[0],
+                name=row[1],
+                instructor=row[2],
+                date_time=row[3],  # Already converted to datetime by SQLite configuration
+                duration=row[4],
+                capacity=row[5],
+                status=row[6],
+                location=row[7]
+            )
+        return None
+
+    @classmethod
+    def get_future_active_classes(cls):
+        """Get all future active classes with booking counts"""
+        with db_connection_with_retry() as conn:
+            with db_cursor(conn) as cursor:
+                # Build database-specific query
+                if DB_CONFIG['type'] == 'sqlite':
+                    query = """
+                    SELECT 
+                        YC.id, YC.name, YC.instructor, YC.date_time, YC.duration, 
+                        YC.capacity, YC.status, YC.location,
+                        COUNT(CASE WHEN B.status = 'active' THEN 1 ELSE NULL END) as booking_count
+                    FROM YogaClasses YC
+                    LEFT JOIN Bookings B ON YC.id = B.class_id
+                    WHERE YC.date_time > datetime('now') AND YC.status = 'active'
+                    GROUP BY 
+                        YC.id, YC.name, YC.instructor, YC.date_time, YC.duration, 
+                        YC.capacity, YC.status, YC.location
+                    ORDER BY YC.date_time
+                    """
+                else:
+                    query = """
+                    SELECT 
+                        YC.id, YC.name, YC.instructor, YC.date_time, YC.duration, 
+                        YC.capacity, YC.status, YC.location,
+                        COUNT(CASE WHEN B.status = 'active' THEN 1 ELSE NULL END) as booking_count
+                    FROM YogaClasses YC
+                    LEFT JOIN Bookings B ON YC.id = B.class_id
+                    WHERE YC.date_time > GETDATE() AND YC.status = 'active'
+                    GROUP BY 
+                        YC.id, YC.name, YC.instructor, YC.date_time, YC.duration, 
+                        YC.capacity, YC.status, YC.location
+                    ORDER BY YC.date_time
+                    """
+
+                cursor.execute(query)
+                rows = cursor.fetchall()
+
+            classes = []
+            for row in rows:
+                yoga_class = cls(
+                    id=row[0],
+                    name=row[1],
+                    instructor=row[2],
+                    date_time=row[3],
+                    duration=row[4],
+                    capacity=row[5],
+                    status=row[6],
+                    location=row[7]
+                )
+
+                booking_count = row[8]
+                class_dict = yoga_class.to_dict(booking_count=booking_count)
+                classes.append(class_dict)
+
+            return classes
+
 class Booking:
     def __init__(self, id=None, user_id=None, class_id=None, booking_date=None, status='active'):
         self.id = id
@@ -718,7 +864,7 @@ class Booking:
         if not yoga_class:
             raise ValueError("Yoga class does not exist")
 
-        # Check if class is in the past
+        # Check if class is in the past - no conversion needed!
         if yoga_class.date_time < datetime.now():
             raise ValueError("Cannot book a class in the past")
 
@@ -726,26 +872,37 @@ class Booking:
         if yoga_class.is_full():
             raise ValueError(f"Class {self.class_id} is fully booked")
 
+        # queries = get_sql_queries()
+
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 # Check if user already has a booking for this class
                 cursor.execute("""
                 SELECT COUNT(*) FROM Bookings 
                 WHERE class_id = ? AND user_id = ? AND status = 'active'
-                """, self.class_id, self.user_id)
+                """, (self.class_id, self.user_id))
                 current_booking = cursor.fetchone()[0]
 
                 if current_booking > 0:
                     raise ValueError(f"User {self.user_id} has already booked for class {self.class_id}")
 
                 # Check for overlapping bookings
-                cursor.execute("""
-                SELECT COUNT(*) FROM Bookings B
-                JOIN YogaClasses YC1 ON B.class_id = YC1.id
-                JOIN YogaClasses YC2 ON YC2.id = ?
-                WHERE B.user_id = ? AND B.status = 'active' AND YC1.date_time = YC2.date_time
-                """, self.class_id, self.user_id)
+                if DB_CONFIG['type'] == 'sqlite':
+                    overlap_query = """
+                    SELECT COUNT(*) FROM Bookings B
+                    JOIN YogaClasses YC1 ON B.class_id = YC1.id
+                    JOIN YogaClasses YC2 ON YC2.id = ?
+                    WHERE B.user_id = ? AND B.status = 'active' AND YC1.date_time = YC2.date_time
+                    """
+                else:
+                    overlap_query = """
+                    SELECT COUNT(*) FROM Bookings B
+                    JOIN YogaClasses YC1 ON B.class_id = YC1.id
+                    JOIN YogaClasses YC2 ON YC2.id = ?
+                    WHERE B.user_id = ? AND B.status = 'active' AND YC1.date_time = YC2.date_time
+                    """
 
+                cursor.execute(overlap_query, (self.class_id, self.user_id))
                 overlapping_booking = cursor.fetchone()[0]
 
                 if overlapping_booking > 0:
@@ -753,12 +910,18 @@ class Booking:
 
                 if self.id is None:
                     # Create the booking
-                    cursor.execute("""
-                    INSERT INTO Bookings (user_id, class_id, booking_date, status)
-                    VALUES (?, ?, GETDATE(), ?)
-                    """, self.user_id, self.class_id, self.status)
+                    if DB_CONFIG['type'] == 'sqlite':
+                        cursor.execute("""
+                        INSERT INTO Bookings (user_id, class_id, booking_date, status)
+                        VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+                        """, (self.user_id, self.class_id, self.status))
+                    else:
+                        cursor.execute("""
+                        INSERT INTO Bookings (user_id, class_id, booking_date, status)
+                        VALUES (?, ?, GETDATE(), ?)
+                        """, (self.user_id, self.class_id, self.status))
 
-                    cursor.execute("SELECT @@IDENTITY")
+                    cursor.execute(SQL_QUERIES['get_identity'])
                     self.id = cursor.fetchone()[0]
                 else:
                     # Update existing booking
@@ -766,7 +929,7 @@ class Booking:
                     UPDATE Bookings 
                     SET user_id = ?, class_id = ?, status = ?
                     WHERE id = ?
-                    """, self.user_id, self.class_id, self.status, self.id)
+                    """, (self.user_id, self.class_id, self.status, self.id))
 
                 conn.commit()
 
@@ -777,7 +940,7 @@ class Booking:
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 self.status = 'cancelled'
-                cursor.execute("UPDATE Bookings SET status = 'cancelled' WHERE id = ?", self.id)
+                cursor.execute("UPDATE Bookings SET status = 'cancelled' WHERE id = ?", (self.id,))
                 conn.commit()
         return True
 
@@ -793,7 +956,7 @@ class Booking:
         google_maps_url = None
 
         if yoga_class:
-            # Use the same formatting from YogaClass.to_dict()
+            # No datetime conversion needed - it's already a datetime object!
             if yoga_class.date_time:
                 end_time = yoga_class.date_time + timedelta(minutes=yoga_class.duration)
                 start_str = yoga_class.date_time.strftime('%d/%m/%Y %H:%M')
@@ -828,7 +991,7 @@ class Booking:
                 SELECT id, user_id, class_id, booking_date, status 
                 FROM Bookings 
                 WHERE id = ?
-                """, booking_id)
+                """, (booking_id,))
                 row = cursor.fetchone()
 
         if row:
@@ -836,7 +999,7 @@ class Booking:
                 id=row[0],
                 user_id=row[1],
                 class_id=row[2],
-                booking_date=row[3],
+                booking_date=row[3],  # Already converted to datetime
                 status=row[4]
             )
         return None
@@ -847,25 +1010,38 @@ class Booking:
         try:
             with db_connection_with_retry() as conn:
                 with db_cursor(conn) as cursor:
-                    # Get all data in a single query to avoid nested database calls
-                    query = """
-                    SELECT 
-                        B.id, B.user_id, B.class_id, B.booking_date, B.status,
-                        YC.name, YC.instructor, YC.date_time, YC.duration, YC.location
-                    FROM Bookings B
-                    JOIN YogaClasses YC ON B.class_id = YC.id
-                    WHERE B.user_id = ? AND B.status = 'active' AND YC.date_time > GETDATE()
-                    """
-                    cursor.execute(query, user_id)
+                    # Build database-specific query
+                    if DB_CONFIG['type'] == 'sqlite':
+                        query = """
+                        SELECT 
+                            B.id, B.user_id, B.class_id, B.booking_date, B.status,
+                            YC.name, YC.instructor, YC.date_time, YC.duration, YC.location
+                        FROM Bookings B
+                        JOIN YogaClasses YC ON B.class_id = YC.id
+                        WHERE B.user_id = ? AND B.status = 'active' AND YC.date_time > datetime('now')
+                        ORDER BY YC.date_time
+                        """
+                    else:
+                        query = """
+                        SELECT 
+                            B.id, B.user_id, B.class_id, B.booking_date, B.status,
+                            YC.name, YC.instructor, YC.date_time, YC.duration, YC.location
+                        FROM Bookings B
+                        JOIN YogaClasses YC ON B.class_id = YC.id
+                        WHERE B.user_id = ? AND B.status = 'active' AND YC.date_time > GETDATE()
+                        ORDER BY YC.date_time
+                        """
+
+                    cursor.execute(query, (user_id,))
                     rows = cursor.fetchall()
 
                     bookings = []
                     for row in rows:
-                        # Calculate formatted time directly here without additional DB calls
-                        formatted_date_time = None
+                        # No datetime conversion needed - already datetime objects!
                         date_time = row[7]  # YC.date_time
                         duration = row[8]   # YC.duration
 
+                        formatted_date_time = None
                         if date_time:
                             end_time = date_time + timedelta(minutes=duration)
                             start_str = date_time.strftime('%d/%m/%Y %H:%M')
@@ -908,7 +1084,38 @@ class Booking:
         booking_id = booking.save()
         return booking_id
 
-# Email sending function
+# --------------------------------------
+# Route Definitions
+# --------------------------------------
+
+@app.route('/users', methods=['POST'])
+def create_user():
+    data = request.get_json()
+
+    # Check if user already exists
+    existing_user = User.get_user_by_email(data['email'])
+    if existing_user:
+        return jsonify({'error': 'Email already registered'}), 400
+
+    try:
+        new_user = User.create_user(
+            name=data['name'],
+            surname=data['surname'],
+            email=data['email'],
+            password=data['password']
+        )
+
+        # Send verification email
+        send_verification_email(new_user)
+
+        return jsonify({
+            'message': 'User created! Please check your email to verify your account.',
+            'id': new_user.id
+        }), 201
+    except Exception as e:
+        return jsonify({'error': f'Could not create user: {str(e)}'}), 400
+
+# Existing email sending function
 def send_verification_email(user):
     # Generate a verification link
     verification_link = f"{request.host_url}verify/{user.verification_token}"
@@ -937,7 +1144,6 @@ def send_verification_email(user):
     msg.attach(MIMEText(html_content, 'html'))
 
     try:
-        # For testing, we'll just log the email instead of sending it
         print(f"------- VERIFICATION EMAIL -------")
         print(f"To: {user.email}")
         print(f"Subject: Verify your email for Yoga for Jantine")
@@ -945,49 +1151,17 @@ def send_verification_email(user):
         print(f"Token: {user.verification_token}")
         print(f"------- END OF EMAIL -------")
 
-        # If you want to actually send emails (with a real SMTP server)
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()  # Enable TLS
-            server.login(os.getenv('MAIL_USERNAME'), os.getenv('MAIL_PASSWORD'))
-            server.send_message(msg)
+        # Uncomment to actually send emails
+        # with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        #     server.starttls()
+        #     server.login(os.getenv('MAIL_USERNAME'), os.getenv('MAIL_PASSWORD'))
+        #     server.send_message(msg)
 
         return True
 
     except Exception as e:
         print(f"Error sending verification email: {str(e)}")
         return False
-
-# --------------------------------------
-# Route Definitions
-# --------------------------------------
-
-# User routes
-@app.route('/users', methods=['POST'])
-def create_user():
-    data = request.get_json()
-
-    # Check if user already exists
-    existing_user = User.get_user_by_email(data['email'])
-    if existing_user:
-        return jsonify({'error': 'Email already registered'}), 400
-
-    try:
-        new_user = User.create_user(
-            name=data['name'],
-            surname=data['surname'],
-            email=data['email'],
-            password=data['password']
-        )
-
-        # Send verification email
-        send_verification_email(new_user)
-
-        return jsonify({
-            'message': 'User created! Please check your email to verify your account.',
-            'id': new_user.id
-        }), 201
-    except Exception as e:
-        return jsonify({'error': f'Could not create user: {str(e)}'}), 400
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -1004,7 +1178,8 @@ def verify_email(token):
             <p><a href="/">Return to homepage</a></p>
         """)
 
-    if user.token_expiry < datetime.utcnow():
+    # No datetime conversion needed - token_expiry is already a datetime object!
+    if user.token_expiry and user.token_expiry < datetime.utcnow():
         return render_template_string("""
             <h1>Expired verification link</h1>
             <p>The verification link has expired. Please request a new one.</p>
@@ -1089,6 +1264,26 @@ def create_class():
 def get_classes():
     return jsonify(YogaClass.get_future_active_classes())
 
+@app.route('/classes/<int:class_id>', methods=['DELETE'])
+def delete_class(class_id):
+    try:
+        # Get the yoga class
+        yoga_class = YogaClass.get_by_id(class_id)
+
+        if not yoga_class:
+            return jsonify({'error': 'Class not found'}), 404
+
+        # Cancel the class and get affected bookings count
+        affected_bookings = yoga_class.cancel()
+
+        return jsonify({
+            'message': 'Class cancelled successfully',
+            'affected_bookings': affected_bookings
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # Booking routes
 @app.route('/bookings', methods=['POST'])
 @login_required
@@ -1135,13 +1330,22 @@ def check_session():
     else:
         return jsonify({'authenticated': False, 'message': 'Session expired'}), 401
 
-# Add a route to check pool health
-@app.route('/api/pool-status', methods=['GET'])
-def pool_status():
-    """Get connection pool status for monitoring"""
-    stats = connection_pool.get_pool_stats()
-    return jsonify(stats)
+# Cleanup function for graceful shutdown
+@app.teardown_appcontext
+def close_db(error):
+    """Close the pool when the app context tears down"""
+    pass  # The pool will be closed when the app shuts down
 
+# Register a function to close the pool on app shutdown
+import atexit
+atexit.register(connection_pool.close_all)
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.get_user_by_id(int(user_id))
+
+# [Keep all your existing static file serving code...]
 def root_dir():  # pragma: no cover
     return os.path.abspath(os.path.dirname(__file__))
 
@@ -1171,11 +1375,11 @@ def get_resource(path):  # pragma: no cover
     content = get_file(complete_path)
     return Response(content, mimetype=mimetype)
 
+
 # Cleanup function for graceful shutdown
 @app.teardown_appcontext
 def close_db(error):
-    """Close the pool when the app context tears down"""
-    pass  # The pool will be closed when the app shuts down
+    pass
 
 # Register a function to close the pool on app shutdown
 import atexit
@@ -1185,5 +1389,4 @@ if __name__ == '__main__':
     try:
         app.run(host='0.0.0.0', debug=True, port=8000)
     finally:
-        # Ensure pool is closed on shutdown
         connection_pool.close_all()
