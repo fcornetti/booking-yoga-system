@@ -40,8 +40,6 @@ def get_database_config():
     Get database configuration based on environment.
     Like choosing between your workshop (local) and factory (production).
     """
-
-    # Detect if running locally
     is_local = (
             os.getenv('FLASK_ENV') == 'development' or
             os.getenv('ENVIRONMENT') == 'local' or
@@ -58,9 +56,7 @@ def get_database_config():
             'conn_string': db_path
         }
     else:
-        # Production Azure SQL Server configuration
-        connection_timeout = os.getenv('DB_CONNECTION_TIMEOUT', '30')
-
+        # OPTIMIZED Production Azure SQL Server configuration
         return {
             'type': 'sqlserver',
             'server': os.getenv('DB_SERVER'),
@@ -76,8 +72,19 @@ def get_database_config():
                 f"PWD={os.getenv('DB_PASSWORD')};"
                 "Encrypt=yes;"
                 "TrustServerCertificate=yes;"
-                f"Connection Timeout={connection_timeout};"
-                f"Login Timeout=120;"
+                # CRITICAL TIMEOUT OPTIMIZATIONS
+                "Connection Timeout=60;"  # Increased from 30 to 60
+                "Login Timeout=60;"       # Explicit login timeout
+                "Command Timeout=30;"     # Query execution timeout
+                # CONNECTION POOLING OPTIMIZATIONS
+                "ConnectRetryCount=3;"    # Reduced from default
+                "ConnectRetryInterval=10;" # Increased retry interval
+                # PERFORMANCE OPTIMIZATIONS
+                # "MultipleActiveResultSets=True;"  # Enable MARS
+                "Pooling=true;"          # Explicit pooling
+                "Max Pool Size=5;"      # Reasonable max pool
+                "Min Pool Size=2;"       # Maintain minimum connections
+                "Connection Lifetime=300;" # 5 minutes max connection age
             )
         }
 
@@ -246,7 +253,11 @@ class SQLiteConnectionPool:
         }
 
 class SQLServerConnectionPool:
-    """Original SQL Server connection pool implementation"""
+    """
+    Simplified and optimized SQL Server connection pool.
+    Think of this as a smart restaurant manager who keeps tables ready
+    and serves customers efficiently without overwhelming the kitchen.
+    """
 
     def __init__(self, conn_string, max_pool_size=5, min_pool_size=2):
         self.conn_string = conn_string
@@ -257,32 +268,79 @@ class SQLServerConnectionPool:
         self._created_connections = 0
         self._closed = False
 
-        # Initialize minimum connections
-        self._initialize_pool()
+        # SIMPLIFIED WARMUP - much faster
+        print(f"Initializing connection pool (max: {max_pool_size}, min: {min_pool_size})...")
+        self._fast_warmup()
 
-    def _initialize_pool(self):
-        """Initialize the pool with minimum connections"""
-        for _ in range(self.min_pool_size):
+    def _fast_warmup(self):
+        """
+        Fast, pragmatic warmup approach.
+        Like pre-heating an oven - we prepare what we need without overdoing it.
+        """
+        # Create exactly the minimum number of connections we specified
+        target_connections = self.min_pool_size
+        successful = 0
+
+        for i in range(target_connections):
             try:
-                conn = self._create_connection()
-                self._pool.put(conn)
-            except Exception as e:
-                print(f"Failed to initialize pool connection: {e}")
-                break
+                print(f"Creating initial connection {i+1}/{target_connections}...")
+                start_time = time.time()
 
-    def _create_connection(self):
-        """Create a new database connection"""
+                # Create connection with optimized timeout
+                conn = pyodbc.connect(self.conn_string, autocommit=False, timeout=30)
+
+                conn_time = time.time() - start_time
+                print(f"Connection {i+1} ready in {conn_time:.1f}s")
+
+                self._pool.put(conn)
+                with self._lock:
+                    self._created_connections += 1
+                successful += 1
+
+            except Exception as e:
+                print(f"Initial connection {i+1} failed: {str(e)[:80]}...")
+                # For warmup, we continue but don't fail completely
+                continue
+
+    def get_connection(self):
+        """Get a connection from the pool or create a new one"""
+        if self._closed:
+            raise Exception("Connection pool is closed")
+
+        # Try to get from pool first (fast path)
+        try:
+            conn = self._pool.get_nowait()
+            if self._is_connection_valid(conn):
+                return conn
+            else:
+                # Connection is stale, create a new one
+                with self._lock:
+                    self._created_connections -= 1
+                return self._create_new_connection()
+        except queue.Empty:
+            # No connections available, create a new one
+            return self._create_new_connection()
+
+    def _create_new_connection(self):
+        """Create a new database connection with optimized settings"""
         with self._lock:
             if self._created_connections >= self.max_pool_size:
                 raise Exception("Maximum connection limit reached")
-
-            conn = pyodbc.connect(self.conn_string, autocommit=False)
             self._created_connections += 1
+
+        try:
+            # Single attempt connection with proper timeout
+            conn = pyodbc.connect(self.conn_string, autocommit=False, timeout=60)
             return conn
+        except Exception as e:
+            with self._lock:
+                self._created_connections -= 1
+            raise e
 
     def _is_connection_valid(self, conn):
-        """Check if a connection is still valid"""
+        """Quick connection validation"""
         try:
+            # Simple, fast validation query
             cursor = conn.cursor()
             cursor.execute("SELECT 1")
             cursor.fetchone()
@@ -290,21 +348,6 @@ class SQLServerConnectionPool:
             return True
         except:
             return False
-
-    def get_connection(self):
-        """Get a connection from the pool"""
-        if self._closed:
-            raise Exception("Connection pool is closed")
-
-        try:
-            conn = self._pool.get(timeout=1)
-            if self._is_connection_valid(conn):
-                return conn
-            else:
-                self._created_connections -= 1
-                return self._create_connection()
-        except queue.Empty:
-            return self._create_connection()
 
     def release_connection(self, conn):
         """Return a connection to the pool"""
@@ -317,6 +360,7 @@ class SQLServerConnectionPool:
             return
 
         try:
+            # Always rollback to clean state
             conn.rollback()
         except:
             pass
@@ -325,6 +369,7 @@ class SQLServerConnectionPool:
             try:
                 self._pool.put_nowait(conn)
             except queue.Full:
+                # Pool is full, close this connection
                 try:
                     conn.close()
                     with self._lock:
@@ -332,6 +377,7 @@ class SQLServerConnectionPool:
                 except:
                     pass
         else:
+            # Connection is invalid, close it
             try:
                 conn.close()
                 with self._lock:
@@ -352,7 +398,7 @@ class SQLServerConnectionPool:
             self._created_connections = 0
 
     def get_pool_stats(self):
-        """Get pool statistics for monitoring"""
+        """Get pool statistics"""
         return {
             'pool_size': self._pool.qsize(),
             'created_connections': self._created_connections,
@@ -374,11 +420,17 @@ else:
 
 @contextlib.contextmanager
 def db_connection():
-    """Context manager for database connections from the pool"""
     conn = None
     try:
+        start_time = time.time()
         conn = connection_pool.get_connection()
+        conn_time = time.time() - start_time
+
+        if conn_time > 5:  # Only log if connection takes more than 5 seconds
+            print(f"Slow connection: {conn_time:.1f}s")
+
         yield conn
+
     except Exception as e:
         if conn:
             try:
@@ -390,36 +442,134 @@ def db_connection():
         if conn:
             connection_pool.release_connection(conn)
 
+# @contextlib.contextmanager
+# def db_connection_with_retry(max_retries=3, initial_delay=5):
+#     """Context manager for database connections with exponential backoff retry logic"""
+#     retries = 0
+#     last_exception = None
+#     print(f"retries {retries}")
+#     while retries < max_retries:
+#         try:
+#             with db_connection() as conn:
+#                 yield conn
+#                 return
+#         except Exception as e:
+#             # For SQLite, don't retry on most errors
+#             print(f"except Exception as e in db_connection_with_retry {str(e)}")
+#             if DB_CONFIG['type'] == 'sqlite':
+#                 raise
+#
+#             # For SQL Server, only retry on timeout or connection errors
+#             if 'timeout' in str(e).lower() or 'connection' in str(e).lower():
+#                 last_exception = e
+#                 retries += 1
+#                 if retries < max_retries:
+#                     delay = initial_delay * (2 ** (retries - 1))
+#                     delay = min(delay, 60)
+#                     print(f"Connection attempt {retries} failed: {str(e)}. Retrying in {delay} seconds...")
+#                     time.sleep(delay)
+#             else:
+#                 raise
+#
+#     raise last_exception or Exception("Failed to connect to database after retries")
+
 @contextlib.contextmanager
-def db_connection_with_retry(max_retries=3, initial_delay=5):
-    """Context manager for database connections with exponential backoff retry logic"""
+def db_connection_with_retry(max_retries=2, initial_delay=3):
+    """Context manager with faster retry for warmed pool"""
     retries = 0
     last_exception = None
-    print(f"retries {retries}")
+
     while retries < max_retries:
         try:
+            start_time = time.time()
             with db_connection() as conn:
+                conn_time = time.time() - start_time
+                if conn_time > 2:  # Log slow connections
+                    print(f"Slow connection: {conn_time:.1f}s")
                 yield conn
                 return
+
         except Exception as e:
-            # For SQLite, don't retry on most errors
-            print(f"except Exception as e in db_connection_with_retry {str(e)}")
+            conn_time = time.time() - start_time
+            print(f"Connection failed after {conn_time:.1f}s: {str(e)[:50]}...")
+
+            # For SQLite, don't retry
             if DB_CONFIG['type'] == 'sqlite':
                 raise
 
-            # For SQL Server, only retry on timeout or connection errors
-            if 'timeout' in str(e).lower() or 'connection' in str(e).lower():
+            # Check if it's worth retrying
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ['timeout', 'connection', 'login']):
                 last_exception = e
                 retries += 1
                 if retries < max_retries:
-                    delay = initial_delay * (2 ** (retries - 1))
-                    delay = min(delay, 60)
-                    print(f"Connection attempt {retries} failed: {str(e)}. Retrying in {delay} seconds...")
+                    delay = initial_delay * retries  # 3s, 6s (faster than before)
+                    print(f"Retrying in {delay}s...")
                     time.sleep(delay)
-            else:
+                    continue
+
+            raise e
+
+    raise last_exception or Exception("Connection failed after retries")
+
+@contextlib.contextmanager
+def db_connection_with_resume_retry(max_retries=3, resume_delay=10):
+    """
+    Context manager with special handling for Azure SQL Database auto-pause/resume.
+    Like a patient visitor who waits for the office building to fully wake up.
+    """
+    retries = 0
+    last_exception = None
+
+    while retries < max_retries:
+        try:
+            start_time = time.time()
+            with db_connection() as conn:
+                conn_time = time.time() - start_time
+                if conn_time > 2:
+                    print(f"Database connection took {conn_time:.1f}s (resume scenario)")
+                yield conn
+                return
+
+        except Exception as e:
+            conn_time = time.time() - start_time
+            error_msg = str(e).lower()
+
+            # Check for Azure SQL Database unavailable errors (auto-pause scenario)
+            if any(keyword in error_msg for keyword in [
+                'not currently available',
+                'database.*is not currently available',
+                '40613',  # Specific Azure error code for database unavailable
+                'server is not currently available'
+            ]):
+                print(f"Database appears to be resuming from auto-pause (attempt {retries + 1})")
+                last_exception = e
+                retries += 1
+
+                if retries < max_retries:
+                    # Use longer delay for database resume scenarios
+                    delay = resume_delay * retries  # 10s, 20s, 30s
+                    print(f"Waiting {delay}s for database to resume...")
+                    time.sleep(delay)
+                    continue
+
+            # For SQLite, don't retry
+            if DB_CONFIG['type'] == 'sqlite':
                 raise
 
-    raise last_exception or Exception("Failed to connect to database after retries")
+            # Check if it's worth retrying for other connection issues
+            if any(keyword in error_msg for keyword in ['timeout', 'connection', 'login']):
+                last_exception = e
+                retries += 1
+                if retries < max_retries:
+                    delay = 3 * retries  # Faster retry for regular timeouts
+                    print(f"Connection timeout, retrying in {delay}s...")
+                    time.sleep(delay)
+                    continue
+
+            raise e
+
+    raise last_exception or Exception("Database connection failed after retries")
 
 @contextlib.contextmanager
 def db_cursor(connection):
@@ -436,18 +586,35 @@ def db_cursor(connection):
                 pass
 
 def init_db():
-    """Initialize database tables if they don't exist"""
+    """
+    Optimized database initialization with connection validation.
+    Like a careful architect who checks the foundation before building.
+    """
+    try:
+        print("Initializing database tables...")
+        init_start = time.time()
 
-    with db_connection_with_retry() as conn:
-        with db_cursor(conn) as cursor:
-            # Create tables
-            # cursor.execute(queries['create_users_table'])
-            # cursor.execute(queries['create_yoga_classes_table'])
-            # cursor.execute(queries['create_bookings_table'])
-            cursor.execute(SQL_QUERIES['create_users_table'])
-            cursor.execute(SQL_QUERIES['create_yoga_classes_table'])
-            cursor.execute(SQL_QUERIES['create_bookings_table'])
-            conn.commit()
+        with db_connection() as conn:
+            with db_cursor(conn) as cursor:
+                # Create tables with better error handling
+                try:
+                    cursor.execute(SQL_QUERIES['create_users_table'])
+                    cursor.execute(SQL_QUERIES['create_yoga_classes_table'])
+                    cursor.execute(SQL_QUERIES['create_bookings_table'])
+                    conn.commit()
+
+                    init_time = time.time() - init_start
+                    print(f"Database initialized successfully in {init_time:.1f}s")
+
+                except Exception as table_error:
+                    print(f"Table creation error: {table_error}")
+                    conn.rollback()
+                    raise
+
+    except Exception as e:
+        print(f"Database initialization failed: {str(e)}")
+        print("Application will continue but database operations may fail")
+
 
 # Initialize database on startup
 with app.app_context():
@@ -580,66 +747,76 @@ class User(UserMixin):
 
     @classmethod
     def get_user_by_email(cls, email):
-        """Get a user by email"""
+        """
+        Enhanced user lookup with database resume handling.
+        Like a smart librarian who waits patiently when the library is reopening.
+        """
         try:
-            print("try")
-            with db_connection_with_retry() as conn:
-                print("db_connection_with_retry() conn")
+            print(f"Looking up user: {email}")
+            total_start = time.time()
+
+            # Use the enhanced connection context manager
+            with db_connection_with_resume_retry() as conn:
+                query_start = time.time()
+
                 with db_cursor(conn) as cursor:
-                    print("db_cursor(conn) as cursor")
                     cursor.execute("""
                         SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
                         FROM Users 
                         WHERE email = ?
                         """, (email,))
+
                     row = cursor.fetchone()
+
+                    query_time = time.time() - query_start
+                    total_time = time.time() - total_start
+
+                    # Log timing info for monitoring
+                    if total_time > 5:
+                        print(f"User lookup - Query: {query_time:.1f}s, Total: {total_time:.1f}s")
 
                     if not row:
                         return None
 
                     return cls(
-                        id=row[0],
-                        name=row[1],
-                        surname=row[2],
-                        email=row[3],
-                        password_hash=row[4],
-                        is_verified=bool(row[5]),
-                        verification_token=row[6],
-                        token_expiry=row[7]  # Already converted to datetime
+                        id=row[0], name=row[1], surname=row[2], email=row[3],
+                        password_hash=row[4], is_verified=bool(row[5]),
+                        verification_token=row[6], token_expiry=row[7]
                     )
+
         except Exception as e:
-            print(f"Error in get_user_by_email: {str(e)}")
+            print(f"get_user_by_email error: {str(e)}")
             return None
 
     @classmethod
     def get_user_by_id(cls, user_id):
-        """Get a user by ID"""
-        try:
-            with db_connection_with_retry() as conn:
-                with db_cursor(conn) as cursor:
-                    cursor.execute("""
-                        SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
-                        FROM Users 
-                        WHERE id = ?
-                        """, (user_id,))
-                    row = cursor.fetchone()
+                """Get a user by ID"""
+                try:
+                    with db_connection_with_retry() as conn:
+                        with db_cursor(conn) as cursor:
+                            cursor.execute("""
+                                SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
+                                FROM Users 
+                                WHERE id = ?
+                                """, (user_id,))
+                            row = cursor.fetchone()
 
-                    if not row:
-                        return None
+                            if not row:
+                                return None
 
-                    return cls(
-                        id=row[0],
-                        name=row[1],
-                        surname=row[2],
-                        email=row[3],
-                        password_hash=row[4],
-                        is_verified=bool(row[5]),
-                        verification_token=row[6],
-                        token_expiry=row[7]  # Already converted to datetime
-                    )
-        except Exception as e:
-            print(f"Error in get_user_by_id: {str(e)}")
-            return None
+                            return cls(
+                                id=row[0],
+                                name=row[1],
+                                surname=row[2],
+                                email=row[3],
+                                password_hash=row[4],
+                                is_verified=bool(row[5]),
+                                verification_token=row[6],
+                                token_expiry=row[7]  # Already converted to datetime
+                            )
+                except Exception as e:
+                    print(f"Error in get_user_by_id: {str(e)}")
+                    return None
 
 class YogaClass:
     def __init__(self, id=None, name=None, instructor=None, date_time=None, duration=75,
@@ -1324,22 +1501,56 @@ def verify_email(token):
 
 @app.route('/login', methods=['POST'])
 def login():
+    """
+    Enhanced login route with database resume awareness.
+    Like a welcoming host who explains when the venue is still opening.
+    """
     data = request.get_json()
-    user = User.get_user_by_email(data['email'])
 
-    if not user:
-        return jsonify({'error': 'Invalid email or password'}), 401
+    try:
+        login_start = time.time()
+        print(f"Login attempt for: {data['email']}")
 
-    if not user.check_password(data['password']):
-        return jsonify({'error': 'Invalid email or password'}), 401
+        # Try to get user with resume retry logic
+        user = User.get_user_by_email(data['email'])
 
-    if not user.is_verified:
-        return jsonify({'error': 'Please verify your email before logging in', 'unverified': True}), 401
+        login_time = time.time() - login_start
 
-    session.permanent = True
+        # Provide different messages based on timing
+        if login_time > 15:
+            print(f"Extended login time: {login_time:.1f}s (likely database resume)")
 
-    login_user(user)
-    return jsonify({'message': 'Logged in successfully!', 'user_id': user.id}), 200
+        if not user:
+            return jsonify({'error': 'Invalid email or password'}), 401
+
+        if not user.check_password(data['password']):
+            return jsonify({'error': 'Invalid email or password'}), 401
+
+        if not user.is_verified:
+            return jsonify({'error': 'Please verify your email before logging in', 'unverified': True}), 401
+
+        session.permanent = True
+        login_user(user)
+
+        # Include timing info for slow logins (database resume scenarios)
+        response_data = {'message': 'Logged in successfully!', 'user_id': user.id}
+        if login_time > 10:
+            response_data['notice'] = 'Login took longer than usual - our system was warming up!'
+
+        return jsonify(response_data), 200
+
+    except Exception as e:
+        error_msg = str(e).lower()
+
+        # Provide user-friendly messages for different scenarios
+        if 'not currently available' in error_msg or '40613' in error_msg:
+            return jsonify({
+                'error': 'Our system is starting up. Please try again in a moment.',
+                'retry_suggested': True
+            }), 503
+
+        print(f"Login error: {str(e)}")
+        return jsonify({'error': 'Login service temporarily unavailable. Please try again.'}), 503
 
 @app.route('/logout', methods=['POST'])
 @login_required
