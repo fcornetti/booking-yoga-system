@@ -1445,16 +1445,39 @@ def check_session():
     else:
         return jsonify({'authenticated': False, 'message': 'Session expired'}), 401
 
-# Cleanup function for graceful shutdown
-@app.teardown_appcontext
-def close_db(error):
-    """Close the pool when the app context tears down"""
-    pass  # The pool will be closed when the app shuts down
+@app.route('/resend-verification', methods=['POST'])
+def resend_verification():
+    """Resend verification email to user"""
+    data = request.get_json()
+    email = data.get('email')
 
-# Register a function to close the pool on app shutdown
-import atexit
-atexit.register(connection_pool.close_all)
+    if not email:
+        return jsonify({'error': 'Email is required'}), 400
 
+    try:
+        # Find the user by email
+        user = User.get_user_by_email(email)
+
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        # Check if user is already verified
+        if user.is_verified:
+            return jsonify({'error': 'User is already verified'}), 400
+
+        # Generate a new verification token (refreshes expiry)
+        user.update_verification_token()
+
+        # Reuse existing email function
+        send_verification_email(user)
+
+        return jsonify({
+            'message': 'Verification email has been resent successfully. Please check your inbox.'
+        }), 200
+
+    except Exception as e:
+        print(f"Error in resend_verification: {str(e)}")
+        return jsonify({'error': 'Failed to resend verification email. Please try again later.'}), 500
 
 @login_manager.user_loader
 def load_user(user_id):
