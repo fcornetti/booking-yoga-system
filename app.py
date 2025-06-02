@@ -1094,9 +1094,21 @@ def create_user():
     data = request.get_json()
 
     # Check if user already exists
+    # existing_user = User.get_user_by_email(data['email'])
+    # if existing_user:
+    #     return jsonify({'error': 'Email already registered'}), 400
+
     existing_user = User.get_user_by_email(data['email'])
     if existing_user:
-        return jsonify({'error': 'Email already registered'}), 400
+        if not existing_user.is_verified:
+            # Like renewing an expired library card
+            existing_user.update_verification_token()
+            send_verification_email(existing_user)
+            return jsonify({
+                'message': 'Account exists but unverified. New verification email sent!'
+            }), 200
+        else:
+            return jsonify({'error': 'Email already registered and verified'}), 400
 
     try:
         new_user = User.create_user(

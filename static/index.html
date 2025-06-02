@@ -154,6 +154,21 @@
         .unverified {
             color: red;
         }
+        /* Input validation styles */
+        .input-error {
+            border: 2px solid #f44336 !important;
+            background-color: #ffebee;
+        }
+        .validation-message {
+            color: #f44336;
+            font-size: 12px;
+            margin-top: 5px;
+            display: block;
+        }
+        .input-valid {
+            border: 2px solid #4CAF50;
+            background-color: #f1f8e9;
+        }
     </style>
 </head>
 <body>
@@ -163,14 +178,20 @@
     <h2>Login / Signup</h2>
     <div class="auth-form">
         <input type="email" id="login-email" placeholder="Email">
+        <span class="validation-message" id="login-email-error"></span>
         <input type="password" id="login-password" placeholder="Password">
+        <span class="validation-message" id="login-password-error"></span>
         <button id="login-button" class="button">Login</button>
     </div>
     <div class="auth-form">
         <input type="text" id="signup-name" placeholder="Name">
+        <span class="validation-message" id="signup-name-error"></span>
         <input type="text" id="signup-surname" placeholder="Surname">
+        <span class="validation-message" id="signup-surname-error"></span>
         <input type="email" id="signup-email" placeholder="Email">
+        <span class="validation-message" id="signup-email-error"></span>
         <input type="password" id="signup-password" placeholder="Password">
+        <span class="validation-message" id="signup-password-error"></span>
         <button id="signup-button" class="button">Signup</button>
     </div>
 
@@ -274,6 +295,219 @@
     const cancelClassButton = document.getElementById('cancel-class-button');
     const testVerificationLinkButton = document.getElementById('test-verification-link');
 
+    // Input Sanitization and Validation Functions
+    function sanitizeString(str) {
+        if (typeof str !== 'string') {
+            return '';
+        }
+
+        // Create a temporary div to decode HTML entities
+        const div = document.createElement('div');
+        div.innerHTML = str;
+        let sanitized = div.textContent || div.innerText || '';
+
+        // Remove potentially dangerous characters and scripts
+        sanitized = sanitized.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+        sanitized = sanitized.replace(/javascript:/gi, '');
+        sanitized = sanitized.replace(/on\w+\s*=/gi, '');
+        sanitized = sanitized.replace(/data:/gi, '');
+        sanitized = sanitized.replace(/vbscript:/gi, '');
+
+        // Remove HTML tags
+        sanitized = sanitized.replace(/<[^>]*>/g, '');
+
+        // Trim whitespace
+        return sanitized.trim();
+    }
+
+    function sanitizeEmail(email) {
+        if (typeof email !== 'string') {
+            return '';
+        }
+
+        // Basic sanitization - remove dangerous characters but keep email structure
+        let sanitized = email.toLowerCase().trim();
+
+        // Remove HTML tags and scripts
+        sanitized = sanitized.replace(/<[^>]*>/g, '');
+        sanitized = sanitized.replace(/javascript:/gi, '');
+
+        // Keep only valid email characters
+        sanitized = sanitized.replace(/[^a-z0-9._%+-@]/g, '');
+
+        return sanitized;
+    }
+
+    function validateEmail(email) {
+        const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+        return emailRegex.test(email) && email.length <= 120;
+    }
+
+    function validateName(name) {
+        // Names should only contain letters, spaces, hyphens, and apostrophes
+        const nameRegex = /^[a-zA-Z\s'-]{1,50}$/;
+        return nameRegex.test(name) && name.trim().length >= 1;
+    }
+
+    function validatePassword(password) {
+        // Password should be at least 6 characters long and not too long
+        return password && password.length >= 6 && password.length <= 128;
+    }
+
+    function clearValidationErrors() {
+        // Clear all validation error messages and styles
+        const errorElements = document.querySelectorAll('.validation-message');
+        errorElements.forEach(element => {
+            element.textContent = '';
+        });
+
+        const inputElements = document.querySelectorAll('input');
+        inputElements.forEach(element => {
+            element.classList.remove('input-error', 'input-valid');
+        });
+    }
+
+    function showValidationError(inputId, message) {
+        const input = document.getElementById(inputId);
+        const errorElement = document.getElementById(inputId + '-error');
+
+        if (input) {
+            input.classList.remove('input-valid');
+            input.classList.add('input-error');
+        }
+
+        if (errorElement) {
+            errorElement.textContent = message;
+        }
+    }
+
+    function showValidationSuccess(inputId) {
+        const input = document.getElementById(inputId);
+        const errorElement = document.getElementById(inputId + '-error');
+
+        if (input) {
+            input.classList.remove('input-error');
+            input.classList.add('input-valid');
+        }
+
+        if (errorElement) {
+            errorElement.textContent = '';
+        }
+    }
+
+    function validateLoginForm(email, password) {
+        clearValidationErrors();
+        let isValid = true;
+
+        // Validate email
+        if (!email) {
+            showValidationError('login-email', 'Email is required');
+            isValid = false;
+        } else if (!validateEmail(email)) {
+            showValidationError('login-email', 'Please enter a valid email address');
+            isValid = false;
+        } else {
+            showValidationSuccess('login-email');
+        }
+
+        // Validate password
+        if (!password) {
+            showValidationError('login-password', 'Password is required');
+            isValid = false;
+        } else if (!validatePassword(password)) {
+            showValidationError('login-password', 'Password must be between 6 and 128 characters');
+            isValid = false;
+        } else {
+            showValidationSuccess('login-password');
+        }
+
+        return isValid;
+    }
+
+    function validateSignupForm(name, surname, email, password) {
+        clearValidationErrors();
+        let isValid = true;
+
+        // Validate name
+        if (!name) {
+            showValidationError('signup-name', 'Name is required');
+            isValid = false;
+        } else if (!validateName(name)) {
+            showValidationError('signup-name', 'Name should only contain letters, spaces, hyphens, and apostrophes (max 50 chars)');
+            isValid = false;
+        } else {
+            showValidationSuccess('signup-name');
+        }
+
+        // Validate surname
+        if (!surname) {
+            showValidationError('signup-surname', 'Surname is required');
+            isValid = false;
+        } else if (!validateName(surname)) {
+            showValidationError('signup-surname', 'Surname should only contain letters, spaces, hyphens, and apostrophes (max 50 chars)');
+            isValid = false;
+        } else {
+            showValidationSuccess('signup-surname');
+        }
+
+        // Validate email
+        if (!email) {
+            showValidationError('signup-email', 'Email is required');
+            isValid = false;
+        } else if (!validateEmail(email)) {
+            showValidationError('signup-email', 'Please enter a valid email address');
+            isValid = false;
+        } else {
+            showValidationSuccess('signup-email');
+        }
+
+        // Validate password
+        if (!password) {
+            showValidationError('signup-password', 'Password is required');
+            isValid = false;
+        } else if (!validatePassword(password)) {
+            showValidationError('signup-password', 'Password must be between 6 and 128 characters');
+            isValid = false;
+        } else {
+            showValidationSuccess('signup-password');
+        }
+
+        return isValid;
+    }
+
+    // Secure data validation before sending to server
+    function validateAndSanitizeLoginData(email, password) {
+        const sanitizedEmail = sanitizeEmail(email);
+        const sanitizedPassword = sanitizeString(password);
+
+        if (!validateLoginForm(sanitizedEmail, sanitizedPassword)) {
+            return null;
+        }
+
+        return {
+            email: sanitizedEmail,
+            password: sanitizedPassword
+        };
+    }
+
+    function validateAndSanitizeSignupData(name, surname, email, password) {
+        const sanitizedName = sanitizeString(name);
+        const sanitizedSurname = sanitizeString(surname);
+        const sanitizedEmail = sanitizeEmail(email);
+        const sanitizedPassword = sanitizeString(password);
+
+        if (!validateSignupForm(sanitizedName, sanitizedSurname, sanitizedEmail, sanitizedPassword)) {
+            return null;
+        }
+
+        return {
+            name: sanitizedName,
+            surname: sanitizedSurname,
+            email: sanitizedEmail,
+            password: sanitizedPassword
+        };
+    }
+
     async function fetchClasses() {
         try {
             const response = await fetch(`${API_URL}/classes`);
@@ -281,7 +515,7 @@
                 throw new Error('Failed to fetch classes');
             }
             const classes = await response.json();
-            console.log('Classes data received:', classes); // Add this line to inspect the data
+            console.log('Classes data received:', classes);
 
             // Fetch user bookings
             const bookingsResponse = await fetch(`${API_URL}/bookings?user_id=${USER_ID}`);
@@ -289,15 +523,19 @@
                 throw new Error('Failed to fetch bookings');
             }
             const bookings = await bookingsResponse.json();
-            const bookedClassIds = bookings.map(booking => booking['class-id']); // Extract booked class IDs
+            const bookedClassIds = bookings.map(booking => booking['class-id']);
 
-            // Update the fetchClasses function
             classesList.innerHTML = classes.map(yogaClass => {
                 const spotsLeft = parseInt(yogaClass['spots left']);
                 const isBooked = bookedClassIds.includes(yogaClass['class-id']);
 
-                // Add the location link HTML if location is available
-                const locationHtml = yogaClass.location ? `Location: <a href="${yogaClass.location_url}" target="_blank" rel="noopener noreferrer">${yogaClass.location}</a><br>` : '';
+                // Sanitize class data before displaying
+                const className = sanitizeString(yogaClass.name || '');
+                const teacherName = sanitizeString(yogaClass.teacher || '');
+                const location = sanitizeString(yogaClass.location || '');
+                const dateTime = sanitizeString(yogaClass['date and time'] || '');
+
+                const locationHtml = location ? `Location: <a href="${yogaClass.location_url}" target="_blank" rel="noopener noreferrer">${location}</a><br>` : '';
 
                 return `
                 <div class="class-item">
@@ -308,9 +546,9 @@
                            ${spotsLeft === 0 || isBooked ? 'disabled' : ''}
                            onchange="handleClassSelection(${yogaClass['class-id']})">
                     <label for="class-${yogaClass['class-id']}">
-                        <strong>${yogaClass.name}</strong><br>
-                        Date: ${yogaClass['date and time']}<br>
-                        Teacher: ${yogaClass.teacher}<br>
+                        <strong>${className}</strong><br>
+                        Date: ${dateTime}<br>
+                        Teacher: ${teacherName}<br>
                         ${locationHtml}
                         <span class="${spotsLeft === 0 ? 'spots-full' : 'spots-available'}">
                             Spots available: ${yogaClass['spots left']} out of ${yogaClass['spots total']}
@@ -325,7 +563,6 @@
         }
     }
 
-    // Fetch and display bookings
     async function fetchBookings() {
         try {
             const response = await fetch(`${API_URL}/bookings?user_id=${USER_ID}`);
@@ -334,7 +571,14 @@
             }
             const bookings = await response.json();
 
-            bookingsList.innerHTML = bookings.map(booking => `
+            bookingsList.innerHTML = bookings.map(booking => {
+                // Sanitize booking data before displaying
+                const className = sanitizeString(booking.class || '');
+                const teacherName = sanitizeString(booking.teacher || '');
+                const location = sanitizeString(booking.location || '');
+                const dateTime = sanitizeString(booking['date and time'] || '');
+
+                return `
                     <div class="booking-item">
                         <input type="radio"
                                name="booking"
@@ -342,32 +586,30 @@
                                id="booking-${booking['booking-id']}"
                                onchange="handleBookingSelection(${booking['booking-id']})">
                         <label for="booking-${booking['booking-id']}">
-                            <strong>${booking.class}</strong><br>
-                            Date: ${booking['date and time']}<br>
-                            Teacher: ${booking.teacher}<br>
-                            Location:  <a href="${booking.location_url}" target="_blank" rel="noopener noreferrer">${booking.location}</a><br><br>
+                            <strong>${className}</strong><br>
+                            Date: ${dateTime}<br>
+                            Teacher: ${teacherName}<br>
+                            Location: <a href="${booking.location_url}" target="_blank" rel="noopener noreferrer">${location}</a><br><br>
                         </label>
                     </div>
-                `).join('');
+                `;
+            }).join('');
         } catch (error) {
             console.error('Error fetching bookings:', error);
             showMessage('Error fetching bookings', 'error');
         }
     }
 
-    // Handle class selection
     function handleClassSelection(classId) {
         selectedClass = classId;
         bookButton.disabled = false;
     }
 
-    // Handle booking selection
     function handleBookingSelection(bookingId) {
         selectedBooking = bookingId;
         cancelButton.disabled = false;
     }
 
-    // Book a class
     async function bookClass() {
         try {
             const response = await fetch(`${API_URL}/bookings`, {
@@ -396,8 +638,6 @@
         }
     }
 
-
-    // Cancel a class
     async function cancelClass() {
         try {
             const classId = document.getElementById('class-id').value;
@@ -425,7 +665,7 @@
             showMessage(error.message, 'error');
         }
     }
-    // Cancel a booking
+
     async function cancelBooking() {
         try {
             const response = await fetch(`${API_URL}/bookings/${selectedBooking}/cancel`, {
@@ -446,15 +686,15 @@
         }
     }
 
-    // Show message
     function showMessage(text, type) {
-        messageDiv.innerHTML = `<div class="message ${type}">${text}</div>`;
+        // Sanitize the message text before displaying
+        const sanitizedText = sanitizeString(text);
+        messageDiv.innerHTML = `<div class="message ${type}">${sanitizedText}</div>`;
         setTimeout(() => {
             messageDiv.innerHTML = '';
         }, 3000);
     }
 
-    // Refresh all data
     async function refreshData() {
         await Promise.all([
             fetchClasses(),
@@ -462,10 +702,15 @@
         ]);
     }
 
-    // In the login function, after USER_ID is set and before refreshData() is called:
     async function login() {
-        const email = document.getElementById('login-email').value;
-        const password = document.getElementById('login-password').value;
+        const rawEmail = document.getElementById('login-email').value;
+        const rawPassword = document.getElementById('login-password').value;
+
+        // Validate and sanitize input data
+        const validatedData = validateAndSanitizeLoginData(rawEmail, rawPassword);
+        if (!validatedData) {
+            return; // Validation failed, errors already displayed
+        }
 
         try {
             const response = await fetch(`${API_URL}/login`, {
@@ -473,10 +718,7 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    email: email,
-                    password: password
-                }),
+                body: JSON.stringify(validatedData),
             });
 
             const data = await response.json();
@@ -489,8 +731,7 @@
                 bookingsSection.style.display = 'block';
 
                 // Only show admin section for the specific admin user
-                // You can use email or user ID to identify the admin
-                if (email === 'admin@jantinevanwijlickyoga.com') { // Replace with your actual admin email or ID
+                if (validatedData.email === 'admin@jantinevanwijlickyoga.com') {
                     adminSection.style.display = 'block';
                 } else {
                     adminSection.style.display = 'none';
@@ -499,9 +740,8 @@
                 showMessage('Logged in successfully!', 'success');
                 await refreshData();
             } else {
-                // Check if this is an unverified user
                 if (data.unverified) {
-                    document.getElementById('verification-email').value = email;
+                    document.getElementById('verification-email').value = validatedData.email;
                     verificationSection.style.display = 'block';
                     showMessage('Please verify your email before logging in', 'error');
                 } else {
@@ -529,13 +769,16 @@
             navBar.style.display = 'none';
             classesSection.style.display = 'none';
             bookingsSection.style.display = 'none';
-            adminSection.style.display = 'none'; // Always hide admin section on logout
+            adminSection.style.display = 'none';
             verificationSection.style.display = 'none';
 
             // Clear form fields
             document.getElementById('login-email').value = '';
             document.getElementById('login-password').value = '';
             document.getElementById('verification-email').value = '';
+
+            // Clear validation errors
+            clearValidationErrors();
 
             // Reset selection state
             selectedClass = null;
@@ -550,9 +793,14 @@
         }
     }
 
-    // Resend verification email
     async function resendVerification() {
-        const email = document.getElementById('verification-email').value;
+        const rawEmail = document.getElementById('verification-email').value;
+        const email = sanitizeEmail(rawEmail);
+
+        if (!validateEmail(email)) {
+            showMessage('Please enter a valid email address', 'error');
+            return;
+        }
 
         try {
             const response = await fetch(`${API_URL}/resend-verification`, {
@@ -577,12 +825,17 @@
         }
     }
 
-    // Signup
     async function signup() {
-        const name = document.getElementById('signup-name').value;
-        const surname = document.getElementById('signup-surname').value;
-        const email = document.getElementById('signup-email').value;
-        const password = document.getElementById('signup-password').value;
+        const rawName = document.getElementById('signup-name').value;
+        const rawSurname = document.getElementById('signup-surname').value;
+        const rawEmail = document.getElementById('signup-email').value;
+        const rawPassword = document.getElementById('signup-password').value;
+
+        // Validate and sanitize input data
+        const validatedData = validateAndSanitizeSignupData(rawName, rawSurname, rawEmail, rawPassword);
+        if (!validatedData) {
+            return; // Validation failed, errors already displayed
+        }
 
         try {
             const response = await fetch(`${API_URL}/users`, {
@@ -590,18 +843,13 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    name: name,
-                    surname: surname,
-                    email: email,
-                    password: password
-                }),
+                body: JSON.stringify(validatedData),
             });
 
             const data = await response.json();
 
             if (response.ok) {
-                document.getElementById('verification-email').value = email;
+                document.getElementById('verification-email').value = validatedData.email;
                 verificationSection.style.display = 'block';
                 showMessage('User created successfully! Please check your email for verification link.', 'success');
 
@@ -610,6 +858,9 @@
                 document.getElementById('signup-surname').value = '';
                 document.getElementById('signup-email').value = '';
                 document.getElementById('signup-password').value = '';
+
+                // Clear validation errors
+                clearValidationErrors();
             } else {
                 showMessage(data.error, 'error');
             }
@@ -631,9 +882,9 @@
                 <h3>All Users</h3>
                 ${users.map(user => `
                     <div class="user-item">
-                        <strong>ID:</strong> ${user.id} -
-                        <strong>Name:</strong> ${user.name} ${user.surname} -
-                        <strong>Email:</strong> ${user.email} -
+                        <strong>ID:</strong> ${sanitizeString(user.id.toString())} -
+                        <strong>Name:</strong> ${sanitizeString(user.name)} ${sanitizeString(user.surname)} -
+                        <strong>Email:</strong> ${sanitizeString(user.email)} -
                         <strong>Status:</strong> <span class="${user.is_verified ? 'verified' : 'unverified'}">
                             ${user.is_verified ? 'Verified' : 'Unverified'}
                         </span>
@@ -658,10 +909,10 @@
                 <h3>Verification Tokens</h3>
                 ${tokens.length > 0 ? tokens.map(token => `
                     <div class="user-item">
-                        <strong>User ID:</strong> ${token.user_id} -
-                        <strong>Email:</strong> ${token.email} -
-                        <strong>Token:</strong> ${token.verification_token} -
-                        <strong>Expires:</strong> ${new Date(token.token_expiry).toLocaleString()}
+                        <strong>User ID:</strong> ${sanitizeString(token.user_id.toString())} -
+                        <strong>Email:</strong> ${sanitizeString(token.email)} -
+                        <strong>Token:</strong> ${sanitizeString(token.verification_token)} -
+                        <strong>Expires:</strong> ${sanitizeString(new Date(token.token_expiry).toLocaleString())}
                     </div>
                 `).join('') : '<p>No active verification tokens</p>'}
             `;
@@ -679,6 +930,12 @@
             return;
         }
 
+        // Validate user ID is a number
+        if (!/^\d+$/.test(userId)) {
+            showMessage('User ID must be a number', 'error');
+            return;
+        }
+
         try {
             const response = await fetch(`${API_URL}/admin/verify-user/${userId}`, {
                 method: 'POST'
@@ -691,6 +948,9 @@
             const data = await response.json();
             showMessage(data.message, 'success');
 
+            // Clear the input field
+            document.getElementById('manual-verify-id').value = '';
+
             // Refresh users list
             await viewAllUsers();
         } catch (error) {
@@ -700,10 +960,16 @@
     }
 
     function testVerificationLink() {
-        const token = document.getElementById('verification-token').value;
+        const token = sanitizeString(document.getElementById('verification-token').value);
 
         if (!token) {
             showMessage('Please enter a verification token', 'error');
+            return;
+        }
+
+        // Basic token validation (should be URL-safe characters)
+        if (!/^[A-Za-z0-9_-]+$/.test(token)) {
+            showMessage('Invalid token format', 'error');
             return;
         }
 
@@ -713,7 +979,6 @@
 
     // Create the session timeout modal
     function createSessionTimeoutModal() {
-        // Calculate warning time in minutes for the message
         const warningTimeMinutes = Math.floor(WARNING_BEFORE_TIMEOUT / (60 * 1000));
 
         const modalHTML = `
@@ -731,73 +996,215 @@
     </div>
     `;
 
-        // Add modal to document body
         document.body.insertAdjacentHTML('beforeend', modalHTML);
-
-        // Get modal elements
         modal = document.getElementById('session-timeout-modal');
         extendButton = document.getElementById('session-extend-btn');
-
-        // Set up event handler for the extend button
         extendButton.addEventListener('click', resetTimer);
     }
 
-    // Reset the timer when user shows activity
     function resetTimer() {
-        // Only reset timer if user is logged in
         if (USER_ID) {
             lastActivity = Date.now();
             hideWarningModal();
         }
     }
 
-    // Hide the warning modal
     function hideWarningModal() {
         warningShown = false;
-        modal.style.display = 'none';
+        if (modal) {
+            modal.style.display = 'none';
+        }
     }
 
-    // Show the warning modal
     function showWarningModal() {
         if (warningShown) return;
         warningShown = true;
-        modal.style.display = 'block';
+        if (modal) {
+            modal.style.display = 'block';
+        }
     }
 
-    // Check session status periodically
     function checkSession() {
-
-        // Only check session if user is logged in (USER_ID exists)
         if (!USER_ID) {
-            return; // Skip session checking if not logged in
+            return;
         }
 
         const elapsed = Date.now() - lastActivity;
 
         if (elapsed >= SESSION_TIMEOUT) {
-            // Session expired - alert user and redirect to login
             clearInterval(sessionInterval);
             alert('Your session has expired due to inactivity. Please log in again.');
-            hideWarningModal()
-            logout(); // Call the existing logout function to reset UI state
+            hideWarningModal();
+            logout();
         } else if (elapsed >= (SESSION_TIMEOUT - WARNING_BEFORE_TIMEOUT) && !warningShown) {
-            // Show warning before expiration
             showWarningModal();
         }
     }
 
-    // Initialize the session timeout system
     function initSessionTimeout() {
         createSessionTimeoutModal();
 
-        // Activity events to track user interaction
         const activityEvents = ['mousedown', 'keypress', 'scroll', 'touchstart'];
         activityEvents.forEach(event => {
             document.addEventListener(event, resetTimer, true);
         });
 
-        // Start the session checker interval
         sessionInterval = setInterval(checkSession, CHECK_INTERVAL);
+    }
+
+    // Real-time input validation
+    function setupRealTimeValidation() {
+        // Login form validation
+        document.getElementById('login-email').addEventListener('blur', function() {
+            const email = sanitizeEmail(this.value);
+
+            if (email && !validateEmail(email)) {
+                showValidationError('login-email', 'Please enter a valid email address');
+            } else if (email) {
+                showValidationSuccess('login-email');
+            }
+        });
+
+        document.getElementById('login-email').addEventListener('input', function() {
+            // Clear error on input to provide immediate feedback
+            if (this.classList.contains('input-error')) {
+                const email = sanitizeEmail(this.value);
+                if (validateEmail(email)) {
+                    showValidationSuccess('login-email');
+                }
+            }
+        });
+
+        document.getElementById('login-password').addEventListener('blur', function() {
+            const password = sanitizeString(this.value);
+
+            if (password && !validatePassword(password)) {
+                showValidationError('login-password', 'Password must be between 6 and 128 characters');
+            } else if (password) {
+                showValidationSuccess('login-password');
+            }
+        });
+
+        document.getElementById('login-password').addEventListener('input', function() {
+            if (this.classList.contains('input-error')) {
+                const password = sanitizeString(this.value);
+                if (validatePassword(password)) {
+                    showValidationSuccess('login-password');
+                }
+            }
+        });
+
+        // Signup form validation
+        document.getElementById('signup-name').addEventListener('blur', function() {
+            const name = sanitizeString(this.value);
+
+            if (name && !validateName(name)) {
+                showValidationError('signup-name', 'Name should only contain letters, spaces, hyphens, and apostrophes (max 50 chars)');
+            } else if (name) {
+                showValidationSuccess('signup-name');
+            }
+        });
+
+        document.getElementById('signup-name').addEventListener('input', function() {
+            if (this.classList.contains('input-error')) {
+                const name = sanitizeString(this.value);
+                if (validateName(name)) {
+                    showValidationSuccess('signup-name');
+                }
+            }
+        });
+
+        document.getElementById('signup-surname').addEventListener('blur', function() {
+            const surname = sanitizeString(this.value);
+
+            if (surname && !validateName(surname)) {
+                showValidationError('signup-surname', 'Surname should only contain letters, spaces, hyphens, and apostrophes (max 50 chars)');
+            } else if (surname) {
+                showValidationSuccess('signup-surname');
+            }
+        });
+
+        document.getElementById('signup-surname').addEventListener('input', function() {
+            if (this.classList.contains('input-error')) {
+                const surname = sanitizeString(this.value);
+                if (validateName(surname)) {
+                    showValidationSuccess('signup-surname');
+                }
+            }
+        });
+
+        document.getElementById('signup-email').addEventListener('blur', function() {
+            const email = sanitizeEmail(this.value);
+
+            if (email && !validateEmail(email)) {
+                showValidationError('signup-email', 'Please enter a valid email address');
+            } else if (email) {
+                showValidationSuccess('signup-email');
+            }
+        });
+
+        document.getElementById('signup-email').addEventListener('input', function() {
+            if (this.classList.contains('input-error')) {
+                const email = sanitizeEmail(this.value);
+                if (validateEmail(email)) {
+                    showValidationSuccess('signup-email');
+                }
+            }
+        });
+
+        document.getElementById('signup-password').addEventListener('blur', function() {
+            const password = sanitizeString(this.value);
+
+            if (password && !validatePassword(password)) {
+                showValidationError('signup-password', 'Password must be between 6 and 128 characters');
+            } else if (password) {
+                showValidationSuccess('signup-password');
+            }
+        });
+
+        document.getElementById('signup-password').addEventListener('input', function() {
+            if (this.classList.contains('input-error')) {
+                const password = sanitizeString(this.value);
+                if (validatePassword(password)) {
+                    showValidationSuccess('signup-password');
+                }
+            }
+        });
+
+        // Verification email validation
+        document.getElementById('verification-email').addEventListener('blur', function() {
+            const email = sanitizeEmail(this.value);
+            const input = this;
+
+            if (email && !validateEmail(email)) {
+                input.style.border = '2px solid #f44336';
+                input.style.backgroundColor = '#ffebee';
+            } else if (email) {
+                input.style.border = '2px solid #4CAF50';
+                input.style.backgroundColor = '#f1f8e9';
+            } else {
+                input.style.border = '';
+                input.style.backgroundColor = '';
+            }
+        });
+    }
+
+    // Enhanced input sanitization for admin fields
+    function setupAdminValidation() {
+        document.getElementById('manual-verify-id').addEventListener('input', function() {
+            // Only allow numbers
+            this.value = this.value.replace(/[^\d]/g, '');
+        });
+
+        document.getElementById('class-id').addEventListener('input', function() {
+            // Only allow numbers
+            this.value = this.value.replace(/[^\d]/g, '');
+        });
+
+        document.getElementById('verification-token').addEventListener('input', function() {
+            // Only allow URL-safe characters
+            this.value = this.value.replace(/[^A-Za-z0-9_-]/g, '');
+        });
     }
 
     // Event listeners
@@ -812,7 +1219,27 @@
     viewTokensButton.addEventListener('click', viewVerificationTokens);
     manualVerifyButton.addEventListener('click', manuallyVerifyUser);
     testVerificationLinkButton.addEventListener('click', testVerificationLink);
-    document.addEventListener('DOMContentLoaded', initSessionTimeout);
+
+    // Allow Enter key to submit forms
+    document.getElementById('login-email').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') login();
+    });
+    document.getElementById('login-password').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') login();
+    });
+    document.getElementById('signup-password').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') signup();
+    });
+    document.getElementById('verification-email').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') resendVerification();
+    });
+
+    // Initialize everything when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        initSessionTimeout();
+        setupRealTimeValidation();
+        setupAdminValidation();
+    });
 
     // Make functions available to the global scope for onclick handlers
     window.handleClassSelection = handleClassSelection;
