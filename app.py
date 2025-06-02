@@ -15,6 +15,7 @@ import time
 import threading
 import queue
 import sqlite3
+import resend
 
 # Load environment variables
 load_dotenv()
@@ -1115,53 +1116,167 @@ def create_user():
     except Exception as e:
         return jsonify({'error': f'Could not create user: {str(e)}'}), 400
 
-# Existing email sending function
+
 def send_verification_email(user):
-    # Generate a verification link
+    """
+    Send verification email via Resend
+    """
+    # Set API key
+    resend.api_key = os.getenv("RESEND_API_KEY")
+    print(resend.api_key)
+
     verification_link = f"{request.host_url}verify/{user.verification_token}"
 
-    # Create email content
+    # Professional email content with peach color scheme
     html_content = f"""
+    <!DOCTYPE html>
     <html>
-    <body>
-        <p>Hi {user.name}, thank you for signing up. Please click the button below to verify your email address:</p>
-        <button style="background-color: #4CAF50; border: none; color: white; padding: 10px 20px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 5px;">
-            <a href="{verification_link}" style="color: white; text-decoration: none;">Verify your email</a>
-        </button>
-        <p>This link will expire in {app.config['VERIFICATION_TOKEN_EXPIRY']} hours.</p>
-        <p>If you didn't create an account, you can ignore this email.</p>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Verify Your Email - Yoga with Jantine</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f4f4f4;">
+        <div style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <div style="text-align: center; margin-bottom: 30px;">
+                <h1 style="color: #FF8C69; margin: 0; font-size: 28px;">🧘‍♀️ Yoga with Jantine</h1>
+            </div>
+            
+            <h2 style="color: #FF8C69; margin-top: 0;">Welcome, {user.name}!</h2>
+            
+            <p style="font-size: 16px; margin-bottom: 20px;">
+                Thank you for joining our peaceful yoga community. We're excited to have you on this journey of movement, stillness, and connection.
+            </p>
+            
+            <p style="font-size: 16px; margin-bottom: 30px;">
+                To complete your registration and start booking your yoga classes, please verify your email address by clicking the button below:
+            </p>
+            
+            <div style="text-align: center; margin: 40px 0;">
+                <a href="{verification_link}" 
+                   style="background: linear-gradient(135deg, #FF8C69, #FF7F50); 
+                          color: white; 
+                          padding: 15px 35px; 
+                          text-decoration: none; 
+                          border-radius: 25px; 
+                          display: inline-block;
+                          font-weight: bold;
+                          font-size: 16px;
+                          box-shadow: 0 4px 15px rgba(255, 140, 105, 0.3);
+                          transition: all 0.3s ease;">
+                    ✨ Verify My Email Address
+                </a>
+            </div>
+            
+            <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 30px 0;">
+                <p style="margin: 0; font-size: 14px; color: #666;">
+                    <strong>Trouble clicking the button?</strong><br>
+                    Copy and paste this link into your browser:
+                </p>
+                <p style="word-break: break-all; background: white; padding: 10px; border-radius: 5px; margin: 10px 0 0 0; font-family: monospace; font-size: 12px;">
+                    {verification_link}
+                </p>
+            </div>
+            
+            <div style="border-top: 2px solid #FF8C69; margin: 30px 0; padding-top: 20px;">
+                <p style="margin-bottom: 10px;">
+                    <strong>What's next?</strong>
+                </p>
+                <ul style="padding-left: 20px; color: #555;">
+                    <li>Browse our available yoga classes</li>
+                    <li>Book your first session</li>
+                    <li>Join our welcoming community</li>
+                </ul>
+            </div>
+            
+            <div style="background: linear-gradient(135deg, #FFEEE6, #FFE4D6); padding: 20px; border-radius: 8px; margin: 30px 0; text-align: center;">
+                <p style="margin: 0; font-style: italic; color: #FF8C69;">
+                    "Yoga is not about touching your toes. It is about what you learn on the way down."
+                </p>
+            </div>
+            
+            <p style="margin-top: 30px;">
+                <strong>Namaste,</strong><br>
+                <span style="color: #FF8C69; font-weight: bold; font-size: 18px;">Jantine</span><br>
+                <span style="color: #666; font-size: 14px;">Certified Yoga Instructor</span><br>
+            </p>
+            
+            <div style="border-top: 1px solid #eee; margin-top: 30px; padding-top: 20px;">
+                <p style="font-size: 12px; color: #888; margin: 0; line-height: 1.4;">
+                    This verification link will expire in {app.config['VERIFICATION_TOKEN_EXPIRY']} hours for security.<br>
+                    If you didn't create an account with us, you can safely ignore this email.<br>
+                    This email was sent to {user.email}
+                </p>
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px;">
+            <p style="font-size: 12px; color: #999; margin: 0;">
+                © 2025 Yoga with Jantine.
+            </p>
+        </div>
     </body>
     </html>
     """
 
-    # Create email message
-    msg = MIMEMultipart()
-    msg['Subject'] = 'Verify your email for Yoga with Jantine'
-    msg['From'] = os.getenv('MAIL_USERNAME')
-    msg['To'] = user.email
+    # Plain text version (important for deliverability)
+    text_content = f"""
+    🧘‍♀️ YOGA WITH JANTINE
 
-    # Attach HTML content
-    msg.attach(MIMEText(html_content, 'html'))
+    Welcome, {user.name}!
+
+    Thank you for joining our peaceful yoga community. We're excited to have you on this journey of movement, stillness, and connection.
+
+    To complete your registration and start booking your yoga classes, please verify your email address by visiting this link:
+
+    {verification_link}
+
+    What's next?
+    • Browse our available yoga classes
+    • Book your first session  
+    • Join our welcoming community
+
+    "Yoga is not about touching your toes. It is about what you learn on the way down."
+
+    Namaste,
+    Jantine
+    Certified Yoga Instructor
+
+    ---
+    This verification link will expire in {app.config['VERIFICATION_TOKEN_EXPIRY']} hours for security.
+    If you didn't create an account with us, you can safely ignore this email.
+    This email was sent to {user.email}
+
+    © 2025 Yoga with Jantine.
+    """
 
     try:
-        print(f"------- VERIFICATION EMAIL -------")
-        print(f"To: {user.email}")
-        print(f"Subject: Verify your email for Yoga for Jantine")
-        print(f"Verification link: {verification_link}")
-        print(f"Token: {user.verification_token}")
-        print(f"------- END OF EMAIL -------")
+        # Send via Resend
+        params = {
+            "from": "Jantine - Yoga Classes <noreply@jantinevanwijlick.com>",
+            "to": [user.email],
+            "subject": f"🧘‍♀️ Welcome {user.name}! Please verify your email",
+            "html": html_content,
+            "text": text_content,
+            "tags": [
+                {"name": "category", "value": "verification"},
+                {"name": "user_id", "value": str(user.id)}
+            ]
+        }
 
-        # Uncomment to actually send emails
-        # with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        #     server.starttls()
-        #     server.login(os.getenv('MAIL_USERNAME'), os.getenv('MAIL_PASSWORD'))
-        #     server.send_message(msg)
+        email_response = resend.Emails.send(params)
+
+        print(f"------- RESEND EMAIL SENT -------")
+        print(f"To: {user.email}")
+        print(f"Subject: 🧘‍♀️ Welcome {user.name}! Please verify your email")
+        print(f"Email ID: {email_response.get('id', 'N/A')}")
+        print(f"Verification link: {verification_link}")
+        print(f"------- EMAIL SENT SUCCESSFULLY -------")
 
         return True
 
     except Exception as e:
-        print(f"Error sending verification email: {str(e)}")
-        return False
+        print(f"❌ Resend error: {str(e)}")
 
 @login_manager.user_loader
 def load_user(user_id):
