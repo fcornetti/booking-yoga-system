@@ -64,7 +64,8 @@ def get_database_config():
             'username': os.getenv('DB_USERNAME'),
             'password': os.getenv('DB_PASSWORD'),
             'driver': '{ODBC Driver 18 for SQL Server}',
-            'conn_string': (
+            # In your get_database_config function, try these settings:
+            "conn_string": (
                 f"DRIVER={{ODBC Driver 18 for SQL Server}};"
                 f"SERVER={os.getenv('DB_SERVER')};"
                 f"DATABASE={os.getenv('DB_NAME')};"
@@ -72,19 +73,15 @@ def get_database_config():
                 f"PWD={os.getenv('DB_PASSWORD')};"
                 "Encrypt=yes;"
                 "TrustServerCertificate=yes;"
-                # CRITICAL TIMEOUT OPTIMIZATIONS
-                "Connection Timeout=60;"  # Increased from 30 to 60
-                "Login Timeout=60;"       # Explicit login timeout
-                "Command Timeout=30;"     # Query execution timeout
-                # CONNECTION POOLING OPTIMIZATIONS
-                "ConnectRetryCount=3;"    # Reduced from default
-                "ConnectRetryInterval=10;" # Increased retry interval
-                # PERFORMANCE OPTIMIZATIONS
-                # "MultipleActiveResultSets=True;"  # Enable MARS
-                "Pooling=true;"          # Explicit pooling
-                "Max Pool Size=5;"      # Reasonable max pool
-                "Min Pool Size=2;"       # Maintain minimum connections
-                "Connection Lifetime=300;" # 5 minutes max connection age
+                "Connection Timeout=60;"
+                "Login Timeout=60;"       
+                "Command Timeout=15;"     
+                "ConnectRetryCount=1;"    
+                "ConnectRetryInterval=5;"
+                "Pooling=true;"
+                "Max Pool Size=5;"        
+                "Min Pool Size=2;"
+                "Connection Lifetime=180;"
             )
         }
 
@@ -594,7 +591,7 @@ def init_db():
         print("Initializing database tables...")
         init_start = time.time()
 
-        with db_connection() as conn:
+        with db_connection_with_resume_retry() as conn:
             with db_cursor(conn) as cursor:
                 # Create tables with better error handling
                 try:
