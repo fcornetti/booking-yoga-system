@@ -160,7 +160,6 @@
             background-color: #ffebee;
         }
         .validation-message {
-            color: #f44336;
             font-size: 12px;
             margin-top: 5px;
             display: block;
@@ -169,20 +168,71 @@
             border: 2px solid #4CAF50;
             background-color: #f1f8e9;
         }
+        /* Password reset modal styles */
+        #password-reset-modal, #new-password-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        #password-reset-modal > div, #new-password-modal > div {
+            background: white;
+            width: 400px;
+            max-width: 90%;
+            margin: 100px auto;
+            padding: 20px;
+            border-radius: 5px;
+        }
+        #password-reset-modal h3, #new-password-modal h3 {
+            margin-top: 0;
+        }
+        #password-reset-modal input, #new-password-modal input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+        .modal-buttons {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+        .modal-buttons button {
+            margin-left: 10px;
+        }
+        /* Forgot password link */
+        .forgot-password-link {
+            margin-top: 10px;
+            font-size: 11px;
+        }
+        .forgot-password-link a {
+            color: #454545;
+            text-decoration: none;
+        }
+        .forgot-password-link a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
 <div id="message"></div>
 
 <div id="auth-section" class="section">
-    <h2>Login / Signup</h2>
-    <div class="auth-form">
-        <input type="email" id="login-email" placeholder="Email">
+    <h2>Login</h2>
+    <div class="auth-form">  <input type="email" id="login-email" placeholder="Email">
         <span class="validation-message" id="login-email-error"></span>
         <input type="password" id="login-password" placeholder="Password">
         <span class="validation-message" id="login-password-error"></span>
+        <div class="forgot-password-link">
+            <a href="#" id="forgot-password-link">Forgot your password?</a>
+        </div>
         <button id="login-button" class="button">Login</button>
     </div>
+    <h2>Signup</h2>
     <div class="auth-form">
         <input type="text" id="signup-name" placeholder="Name">
         <span class="validation-message" id="signup-name-error"></span>
@@ -251,17 +301,46 @@
     </div>
 </div>
 
+<!-- Password Reset Modal -->
+<div id="password-reset-modal">
+    <div>
+        <h3>Reset Password</h3>
+        <input type="email" id="reset-email" placeholder="Email">
+        <span class="validation-message" id="reset-email-error"></span>
+        <div class="modal-buttons">
+            <button id="cancel-reset-button" class="button cancel-button">Cancel</button>
+            <button id="send-reset-link-button" class="button">Send Reset Link</button>
+        </div>
+    </div>
+</div>
+
+<!-- New Password Modal -->
+<div id="new-password-modal">
+    <div>
+        <h3>Set New Password</h3>
+        <input type="password" id="new-password" placeholder="New Password">
+        <span class="validation-message" id="new-password-error"></span>
+        <input type="password" id="confirm-new-password" placeholder="Confirm New Password">
+        <span class="validation-message" id="confirm-password-error"></span>
+        <div class="modal-buttons">
+            <button id="cancel-new-password-button" class="button cancel-button">Cancel</button>
+            <button id="submit-new-password-button" class="button">Update Password</button>
+        </div>
+    </div>
+</div>
+
 <script>
     // Configuration
     const API_URL = ''; // Update this if your backend is running on a different URL
     let USER_ID = null;
-    const SESSION_TIMEOUT = 10 * 60 * 1000; // 10 minutes in milliseconds
-    const WARNING_BEFORE_TIMEOUT = 5 * 60 * 1000; // Show warning 5 minutes before timeout
-    const CHECK_INTERVAL = 60 * 1000; // Check every minute
+    const SESSION_TIMEOUT = 30 * 60 * 1000;
+    const WARNING_BEFORE_TIMEOUT = 5 * 60 * 1000;
+    const CHECK_INTERVAL = 60 * 1000;
 
     // State
     let selectedClass = null;
     let selectedBooking = null;
+    let resetToken = null;
 
     // Global variables for session management
     let lastActivity = Date.now();
@@ -286,6 +365,15 @@
     const signupButton = document.getElementById('signup-button');
     const logoutButton = document.getElementById('logout-button');
     const resendVerificationButton = document.getElementById('resend-verification-button');
+    const forgotPasswordLink = document.getElementById('forgot-password-link');
+
+    // Password reset elements
+    const passwordResetModal = document.getElementById('password-reset-modal');
+    const newPasswordModal = document.getElementById('new-password-modal');
+    const cancelResetButton = document.getElementById('cancel-reset-button');
+    const sendResetLinkButton = document.getElementById('send-reset-link-button');
+    const cancelNewPasswordButton = document.getElementById('cancel-new-password-button');
+    const submitNewPasswordButton = document.getElementById('submit-new-password-button');
 
     // Admin elements
     const viewUsersButton = document.getElementById('view-users-button');
@@ -869,6 +957,110 @@
         }
     }
 
+    // Password Reset Functions
+    function showPasswordResetModal() {
+        passwordResetModal.style.display = 'block';
+    }
+
+    function hidePasswordResetModal() {
+        passwordResetModal.style.display = 'none';
+        document.getElementById('reset-email').value = '';
+        document.getElementById('reset-email-error').textContent = '';
+    }
+
+    function showNewPasswordModal(token) {
+        resetToken = token;
+        newPasswordModal.style.display = 'block';
+    }
+
+    function hideNewPasswordModal() {
+        resetToken = null;
+        newPasswordModal.style.display = 'none';
+        document.getElementById('new-password').value = '';
+        document.getElementById('confirm-new-password').value = '';
+        document.getElementById('new-password-error').textContent = '';
+        document.getElementById('confirm-password-error').textContent = '';
+    }
+
+    async function sendPasswordResetLink() {
+        const rawEmail = document.getElementById('reset-email').value;
+        const email = sanitizeEmail(rawEmail);
+
+        if (!validateEmail(email)) {
+            showValidationError('reset-email', 'Please enter a valid email address');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_URL}/request-password-reset`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ email })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showMessage(`A password reset link has been sent to ${email}`, 'success');
+                hidePasswordResetModal();
+            } else {
+                showMessage(data.error || 'Failed to send reset link', 'error');
+            }
+        } catch (error) {
+            showMessage('Error sending password reset link', 'error');
+        }
+    }
+
+    async function updatePassword() {
+        const newPassword = document.getElementById('new-password').value;
+        const confirmPassword = document.getElementById('confirm-new-password').value;
+
+        // Validate passwords
+        if (!validatePassword(newPassword)) {
+            showValidationError('new-password', 'Password must be between 6 and 128 characters');
+            return;
+        }
+
+        if (newPassword !== confirmPassword) {
+            showValidationError('confirm-new-password', 'Passwords do not match');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_URL}/reset-password/${resetToken}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ new_password: newPassword })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showMessage('Password reset successfully! You can now log in with your new password.', 'success');
+                hideNewPasswordModal();
+            } else {
+                showMessage(data.error || 'Failed to reset password', 'error');
+            }
+        } catch (error) {
+            showMessage('Error resetting password', 'error');
+        }
+    }
+
+    // Check URL for password reset token
+    function checkForPasswordResetToken() {
+        const path = window.location.pathname;
+        if (path.startsWith('/reset-password/')) {
+            const token = path.split('/reset-password/')[1];
+            if (token) {
+                showNewPasswordModal(token);
+            }
+        }
+    }
+
     // Admin functions
     async function viewAllUsers() {
         try {
@@ -1187,6 +1379,38 @@
                 input.style.backgroundColor = '';
             }
         });
+
+        // Password reset validation
+        document.getElementById('reset-email').addEventListener('blur', function() {
+            const email = sanitizeEmail(this.value);
+
+            if (email && !validateEmail(email)) {
+                showValidationError('reset-email', 'Please enter a valid email address');
+            } else if (email) {
+                showValidationSuccess('reset-email');
+            }
+        });
+
+        document.getElementById('new-password').addEventListener('blur', function() {
+            const password = sanitizeString(this.value);
+
+            if (password && !validatePassword(password)) {
+                showValidationError('new-password', 'Password must be between 6 and 128 characters');
+            } else if (password) {
+                showValidationSuccess('new-password');
+            }
+        });
+
+        document.getElementById('confirm-new-password').addEventListener('blur', function() {
+            const password = sanitizeString(this.value);
+            const newPassword = document.getElementById('new-password').value;
+
+            if (password && password !== newPassword) {
+                showValidationError('confirm-new-password', 'Passwords do not match');
+            } else if (password) {
+                showValidationSuccess('confirm-new-password');
+            }
+        });
     }
 
     // Enhanced input sanitization for admin fields
@@ -1220,6 +1444,13 @@
     manualVerifyButton.addEventListener('click', manuallyVerifyUser);
     testVerificationLinkButton.addEventListener('click', testVerificationLink);
 
+    // Password reset event listeners
+    forgotPasswordLink.addEventListener('click', showPasswordResetModal);
+    cancelResetButton.addEventListener('click', hidePasswordResetModal);
+    sendResetLinkButton.addEventListener('click', sendPasswordResetLink);
+    cancelNewPasswordButton.addEventListener('click', hideNewPasswordModal);
+    submitNewPasswordButton.addEventListener('click', updatePassword);
+
     // Allow Enter key to submit forms
     document.getElementById('login-email').addEventListener('keypress', function(e) {
         if (e.key === 'Enter') login();
@@ -1233,12 +1464,22 @@
     document.getElementById('verification-email').addEventListener('keypress', function(e) {
         if (e.key === 'Enter') resendVerification();
     });
+    document.getElementById('reset-email').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') sendPasswordResetLink();
+    });
+    document.getElementById('new-password').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') updatePassword();
+    });
+    document.getElementById('confirm-new-password').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') updatePassword();
+    });
 
     // Initialize everything when the page loads
     document.addEventListener('DOMContentLoaded', function() {
         initSessionTimeout();
         setupRealTimeValidation();
         setupAdminValidation();
+        checkForPasswordResetToken();
     });
 
     // Make functions available to the global scope for onclick handlers

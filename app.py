@@ -16,6 +16,7 @@ import threading
 import queue
 import sqlite3
 import resend
+from database_keepalive import *
 
 # Load environment variables
 load_dotenv()
@@ -264,16 +265,10 @@ class SQLServerConnectionPool:
         self._lock = threading.Lock()
         self._created_connections = 0
         self._closed = False
-
-        # SIMPLIFIED WARMUP - much faster
         print(f"Initializing connection pool (max: {max_pool_size}, min: {min_pool_size})...")
         self._fast_warmup()
 
     def _fast_warmup(self):
-        """
-        Fast, pragmatic warmup approach.
-        Like pre-heating an oven - we prepare what we need without overdoing it.
-        """
         # Create exactly the minimum number of connections we specified
         target_connections = self.min_pool_size
         successful = 0
@@ -439,37 +434,6 @@ def db_connection():
         if conn:
             connection_pool.release_connection(conn)
 
-# @contextlib.contextmanager
-# def db_connection_with_retry(max_retries=3, initial_delay=5):
-#     """Context manager for database connections with exponential backoff retry logic"""
-#     retries = 0
-#     last_exception = None
-#     print(f"retries {retries}")
-#     while retries < max_retries:
-#         try:
-#             with db_connection() as conn:
-#                 yield conn
-#                 return
-#         except Exception as e:
-#             # For SQLite, don't retry on most errors
-#             print(f"except Exception as e in db_connection_with_retry {str(e)}")
-#             if DB_CONFIG['type'] == 'sqlite':
-#                 raise
-#
-#             # For SQL Server, only retry on timeout or connection errors
-#             if 'timeout' in str(e).lower() or 'connection' in str(e).lower():
-#                 last_exception = e
-#                 retries += 1
-#                 if retries < max_retries:
-#                     delay = initial_delay * (2 ** (retries - 1))
-#                     delay = min(delay, 60)
-#                     print(f"Connection attempt {retries} failed: {str(e)}. Retrying in {delay} seconds...")
-#                     time.sleep(delay)
-#             else:
-#                 raise
-#
-#     raise last_exception or Exception("Failed to connect to database after retries")
-
 @contextlib.contextmanager
 def db_connection_with_retry(max_retries=2, initial_delay=3):
     """Context manager with faster retry for warmed pool"""
@@ -513,7 +477,6 @@ def db_connection_with_retry(max_retries=2, initial_delay=3):
 def db_connection_with_resume_retry(max_retries=3, resume_delay=10):
     """
     Context manager with special handling for Azure SQL Database auto-pause/resume.
-    Like a patient visitor who waits for the office building to fully wake up.
     """
     retries = 0
     last_exception = None
@@ -585,7 +548,6 @@ def db_cursor(connection):
 def init_db():
     """
     Optimized database initialization with connection validation.
-    Like a careful architect who checks the foundation before building.
     """
     try:
         print("Initializing database tables...")
@@ -814,6 +776,25 @@ class User(UserMixin):
                 except Exception as e:
                     print(f"Error in get_user_by_id: {str(e)}")
                     return None
+
+    @staticmethod
+    def get_user_count():
+        """
+        Get total count of users in the system.
+        This is a lightweight query perfect for database keepalive pings.
+
+        Returns:
+            int: Total number of users
+        """
+        try:
+            with db_connection_with_resume_retry() as conn:
+                with db_cursor(conn) as cursor:
+                    cursor.execute("SELECT COUNT(*) FROM Users")
+                    result = cursor.fetchone()
+                    return result[0] if result else 0
+        except Exception as e:
+            print(f"Error getting user count: {str(e)}")
+            return 0
 
 class YogaClass:
     def __init__(self, id=None, name=None, instructor=None, date_time=None, duration=75,
@@ -1275,7 +1256,6 @@ def create_user():
     existing_user = User.get_user_by_email(data['email'])
     if existing_user:
         if not existing_user.is_verified:
-            # Like renewing an expired library card
             existing_user.update_verification_token()
             send_verification_email(existing_user)
             return jsonify({
@@ -1500,7 +1480,6 @@ def verify_email(token):
 def login():
     """
     Enhanced login route with database resume awareness.
-    Like a welcoming host who explains when the venue is still opening.
     """
     data = request.get_json()
 
@@ -1699,6 +1678,244 @@ def resend_verification():
         print(f"Error in resend_verification: {str(e)}")
         return jsonify({'error': 'Failed to resend verification email. Please try again later.'}), 500
 
+@app.route('/request-password-reset', methods=['POST'])
+def request_password_reset():
+    data = request.get_json()
+    email = data.get('email')
+
+    if not email:
+        return jsonify({'error': 'Email is required'}), 400
+
+    try:
+        # Find the user by email
+        user = User.get_user_by_email(email)
+
+        if not user:
+            # Don't reveal whether user exists for security
+            return jsonify({'message': 'If an account exists with this email, a password reset link has been sent'}), 200
+
+        # Generate a password reset token
+        reset_token = secrets.token_urlsafe(32)
+        token_expiry = datetime.utcnow() + timedelta(hours=1)  # 1 hour expiry for password reset
+
+        # Store the token in the database
+        with db_connection_with_retry() as conn:
+            with db_cursor(conn) as cursor:
+                cursor.execute("""
+                UPDATE Users 
+                SET verification_token = ?, token_expiry = ?
+                WHERE id = ?
+                """, (reset_token, token_expiry, user.id))
+                conn.commit()
+
+        # Send password reset email
+        send_password_reset_email(user, reset_token)
+
+        return jsonify({
+            'message': 'If an account exists with this email, a password reset link has been sent'
+        }), 200
+
+    except Exception as e:
+        print(f"Error in request_password_reset: {str(e)}")
+        return jsonify({'error': 'Failed to process password reset request'}), 500
+
+@app.route('/reset-password/<token>', methods=['POST'])
+def reset_password(token):
+    data = request.get_json()
+    new_password = data.get('new_password')
+
+    if not new_password:
+        return jsonify({'error': 'New password is required'}), 400
+
+    try:
+        # Find user by reset token (using verification_token column)
+        with db_connection_with_retry() as conn:
+            with db_cursor(conn) as cursor:
+                cursor.execute("""
+                SELECT id, token_expiry 
+                FROM Users 
+                WHERE verification_token = ?
+                """, (token,))
+                row = cursor.fetchone()
+
+                if not row:
+                    return jsonify({'error': 'Invalid or expired reset token'}), 400
+
+                user_id = row[0]
+                expiry = row[1]
+
+                # Check if token is expired
+                if expiry < datetime.utcnow():
+                    return jsonify({'error': 'Reset token has expired'}), 400
+
+                # Update password and clear token
+                password_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+                cursor.execute("""
+                UPDATE Users 
+                SET password_hash = ?, verification_token = NULL, token_expiry = NULL
+                WHERE id = ?
+                """, (password_hash, user_id))
+                conn.commit()
+
+        return jsonify({'message': 'Password reset successfully'}), 200
+
+    except Exception as e:
+        print(f"Error in reset_password: {str(e)}")
+        return jsonify({'error': 'Failed to reset password'}), 500
+
+@app.route('/reset-password/<token>', methods=['GET'])
+def show_password_reset_form(token):
+    # First, validate the token to ensure it's still active and belongs to a user
+    try:
+        with db_connection_with_retry() as conn:
+            with db_cursor(conn) as cursor:
+                cursor.execute("""
+                SELECT id, token_expiry
+                FROM Users
+                WHERE verification_token = ?
+                """, (token,))
+                row = cursor.fetchone()
+
+                if not row:
+                    return render_template_string("""
+                        <h1>Invalid or Expired Link</h1>
+                        <p>The password reset link is invalid or has already been used/expired.</p>
+                        <p><a href="/">Return to homepage</a></p>
+                    """)
+
+                expiry = row[1]
+                if expiry < datetime.utcnow():
+                    return render_template_string("""
+                        <h1>Link Expired</h1>
+                        <p>The password reset link has expired. Please request a new one.</p>
+                        <p><a href="/request-password-reset">Request New Password Reset Link</a></p>
+                    """)
+        # If token is valid and not expired, render the form
+        return render_template_string(get_file("static/reset_password.html"), token=token)
+    except Exception as e:
+        print(f"Error serving password reset form: {str(e)}")
+        return render_template_string("""
+            <h1>Error</h1>
+            <p>An unexpected error occurred. Please try again later.</p>
+            <p><a href="/">Return to homepage</a></p>
+        """)
+
+def send_password_reset_email(user, reset_token):
+    """Send password reset email via Resend"""
+    resend.api_key = os.getenv("RESEND_API_KEY")
+
+    reset_link = f"{request.host_url}reset-password/{reset_token}"
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Password Reset - Yoga with Jantine</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f4f4f4;">
+        <div style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <div style="text-align: center; margin-bottom: 30px;">
+                <h1 style="color: #FF8C69; margin: 0; font-size: 28px;">🧘‍♀️ Yoga with Jantine</h1>
+            </div>
+            
+            <h2 style="color: #FF8C69; margin-top: 0;">Password Reset Request</h2>
+            
+            <p style="font-size: 16px; margin-bottom: 20px;">
+                We received a request to reset your password. If you didn't make this request, you can safely ignore this email.
+            </p>
+            
+            <p style="font-size: 16px; margin-bottom: 30px;">
+                To reset your password, please click the button below:
+            </p>
+            
+            <div style="text-align: center; margin: 40px 0;">
+                <a href="{reset_link}" 
+                   style="background: linear-gradient(135deg, #FF8C69, #FF7F50); 
+                          color: white; 
+                          padding: 15px 35px; 
+                          text-decoration: none; 
+                          border-radius: 25px; 
+                          display: inline-block;
+                          font-weight: bold;
+                          font-size: 16px;
+                          box-shadow: 0 4px 15px rgba(255, 140, 105, 0.3);
+                          transition: all 0.3s ease;">
+                    🔒 Reset My Password
+                </a>
+            </div>
+            
+            <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 30px 0;">
+                <p style="margin: 0; font-size: 14px; color: #666;">
+                    <strong>Trouble clicking the button?</strong><br>
+                    Copy and paste this link into your browser:
+                </p>
+                <p style="word-break: break-all; background: white; padding: 10px; border-radius: 5px; margin: 10px 0 0 0; font-family: monospace; font-size: 12px;">
+                    {reset_link}
+                </p>
+            </div>
+            
+            <div style="border-top: 2px solid #FF8C69; margin: 30px 0; padding-top: 20px;">
+                <p style="margin-bottom: 10px;">
+                    <strong>Important:</strong>
+                </p>
+                <ul style="padding-left: 20px; color: #555;">
+                    <li>This link will expire in 1 hour</li>
+                    <li>For security reasons, don't share this link with anyone</li>
+                    <li>If you didn't request this, your account may be compromised</li>
+                </ul>
+            </div>
+            
+            <p style="margin-top: 30px;">
+                <strong>Namaste,</strong><br>
+                <span style="color: #FF8C69; font-weight: bold; font-size: 18px;">Jantine</span><br>
+                <span style="color: #666; font-size: 14px;">Certified Yoga Instructor</span><br>
+            </p>
+        </div>
+    </body>
+    </html>
+    """
+
+    text_content = f"""
+    🧘‍♀️ YOGA WITH JANTINE - PASSWORD RESET
+
+    We received a request to reset your password. If you didn't make this request, you can safely ignore this email.
+
+    To reset your password, please visit this link:
+    {reset_link}
+
+    Important:
+    • This link will expire in 1 hour
+    • For security reasons, don't share this link with anyone
+    • If you didn't request this, your account may be compromised
+
+    Namaste,
+    Jantine
+    Certified Yoga Instructor
+    """
+
+    try:
+        params = {
+            "from": "Jantine - Yoga Classes <noreply@jantinevanwijlick.com>",
+            "to": [user.email],
+            "subject": "🧘‍♀️ Password Reset Request",
+            "html": html_content,
+            "text": text_content,
+            "tags": [
+                {"name": "category", "value": "password_reset"},
+                {"name": "user_id", "value": str(user.id)}
+            ]
+        }
+
+        resend.Emails.send(params)
+        print(f"Password reset email sent to {user.email}")
+        return True
+
+    except Exception as e:
+        print(f"Error sending password reset email: {str(e)}")
+        return False
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.get_user_by_id(int(user_id))
@@ -1745,6 +1962,14 @@ atexit.register(connection_pool.close_all)
 
 if __name__ == '__main__':
     try:
+        # Start the database keepalive service
+        print("Starting Yoga Booking System...")
+        start_database_keepalive()
+
+        # Start your Flask app
         app.run(host='0.0.0.0', debug=True, port=8000)
     finally:
+        # Clean shutdown
+        print("Shutting down services...")
+        stop_database_keepalive()
         connection_pool.close_all()
