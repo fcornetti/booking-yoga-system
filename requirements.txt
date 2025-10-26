@@ -35,6 +35,7 @@ pyasn1==0.6.1
 pyasn1_modules==0.4.1
 pycparser==2.22
 pyodbc==5.2.0
+psycopg2-binary==2.9.9
 pyparsing==3.2.1
 python-dotenv==1.1.0
 python-http-client==3.3.7

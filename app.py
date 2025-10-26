@@ -18,6 +18,14 @@ import sqlite3
 import resend
 from database_keepalive import *
 
+# PostgreSQL support
+try:
+    import psycopg2
+    from psycopg2 import pool as pg_pool
+    POSTGRES_AVAILABLE = True
+except ImportError:
+    POSTGRES_AVAILABLE = False
+
 # Load environment variables
 load_dotenv()
 
@@ -39,8 +47,21 @@ def before_request():
 def get_database_config():
     """
     Get database configuration based on environment.
-    Like choosing between your workshop (local) and factory (production).
+    Supports SQLite (local), PostgreSQL (Render/Railway), and Azure SQL Server.
     """
+    # Check for PostgreSQL first (Render/Railway/Heroku use DATABASE_URL)
+    database_url = os.getenv('DATABASE_URL')
+    if database_url:
+        # Render.com and Railway.app use postgres:// which psycopg2 needs as postgresql://
+        if database_url.startswith('postgres://'):
+            database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        
+        return {
+            'type': 'postgresql',
+            'conn_string': database_url
+        }
+    
+    # Check if local development
     is_local = (
             os.getenv('FLASK_ENV') == 'development' or
             os.getenv('ENVIRONMENT') == 'local' or
@@ -65,7 +86,6 @@ def get_database_config():
             'username': os.getenv('DB_USERNAME'),
             'password': os.getenv('DB_PASSWORD'),
             'driver': '{ODBC Driver 18 for SQL Server}',
-            # In your get_database_config function, try these settings:
             "conn_string": (
                 f"DRIVER={{ODBC Driver 18 for SQL Server}};"
                 f"SERVER={os.getenv('DB_SERVER')};"
@@ -132,6 +152,47 @@ def get_sql_queries():
             'get_identity': 'SELECT last_insert_rowid()',
             'get_current_timestamp': 'CURRENT_TIMESTAMP',
             'get_date_now': 'datetime("now")'
+        }
+    elif DB_CONFIG['type'] == 'postgresql':
+        return {
+            'create_users_table': """
+            CREATE TABLE IF NOT EXISTS Users (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                surname VARCHAR(100) NOT NULL,
+                email VARCHAR(120) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                is_verified BOOLEAN DEFAULT FALSE,
+                verification_token VARCHAR(100) DEFAULT NULL,
+                token_expiry TIMESTAMP NULL
+            )
+            """,
+            'create_yoga_classes_table': """
+            CREATE TABLE IF NOT EXISTS YogaClasses (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                instructor VARCHAR(100) NOT NULL,
+                date_time TIMESTAMP NOT NULL,
+                duration INTEGER NOT NULL DEFAULT 75,
+                capacity INTEGER NOT NULL,
+                status VARCHAR(20) DEFAULT 'active',
+                location VARCHAR(200) NOT NULL
+            )
+            """,
+            'create_bookings_table': """
+            CREATE TABLE IF NOT EXISTS Bookings (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                class_id INTEGER NOT NULL,
+                booking_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status VARCHAR(20) DEFAULT 'active',
+                FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
+                FOREIGN KEY (class_id) REFERENCES YogaClasses(id) ON DELETE CASCADE
+            )
+            """,
+            'get_identity': 'SELECT lastval()',
+            'get_current_timestamp': 'CURRENT_TIMESTAMP',
+            'get_date_now': 'CURRENT_TIMESTAMP'
         }
     else:
         return {
@@ -247,6 +308,66 @@ class SQLiteConnectionPool:
             'pool_size': 1,
             'created_connections': 1,
             'max_pool_size': 1,
+            'is_closed': False
+        }
+
+class PostgreSQLConnectionPool:
+    """PostgreSQL connection pool using psycopg2"""
+    
+    def __init__(self, conn_string, max_pool_size=10, min_pool_size=2):
+        self.conn_string = conn_string
+        self.max_pool_size = max_pool_size
+        self.min_pool_size = min_pool_size
+        print(f"Initializing PostgreSQL connection pool (max: {max_pool_size}, min: {min_pool_size})...")
+        
+        try:
+            # Create connection pool
+            self._pool = pg_pool.SimpleConnectionPool(
+                min_pool_size,
+                max_pool_size,
+                conn_string
+            )
+            print("✅ PostgreSQL connection pool initialized successfully!")
+        except Exception as e:
+            print(f"❌ PostgreSQL connection pool initialization failed: {e}")
+            raise
+    
+    def get_connection(self):
+        """Get a connection from the pool"""
+        try:
+            conn = self._pool.getconn()
+            if conn:
+                return conn
+            else:
+                raise Exception("Failed to get connection from pool")
+        except Exception as e:
+            print(f"Error getting PostgreSQL connection: {e}")
+            raise
+    
+    def release_connection(self, conn):
+        """Return a connection to the pool"""
+        if conn:
+            try:
+                # Rollback any uncommitted transactions
+                if not conn.closed:
+                    conn.rollback()
+                self._pool.putconn(conn)
+            except Exception as e:
+                print(f"Error releasing PostgreSQL connection: {e}")
+    
+    def close_all(self):
+        """Close all connections in the pool"""
+        try:
+            self._pool.closeall()
+        except:
+            pass
+    
+    def get_pool_stats(self):
+        """Get pool statistics"""
+        return {
+            'pool_size': self.max_pool_size,
+            'created_connections': self.max_pool_size,
+            'max_pool_size': self.max_pool_size,
             'is_closed': False
         }
 
@@ -401,6 +522,14 @@ class SQLServerConnectionPool:
 # Initialize the appropriate connection pool based on database type
 if DB_CONFIG['type'] == 'sqlite':
     connection_pool = SQLiteConnectionPool(DB_CONFIG['conn_string'])
+elif DB_CONFIG['type'] == 'postgresql':
+    pool_size = int(os.getenv('DB_POOL_SIZE', '10'))
+    min_pool_size = max(2, pool_size // 5)
+    connection_pool = PostgreSQLConnectionPool(
+        DB_CONFIG['conn_string'],
+        max_pool_size=pool_size,
+        min_pool_size=min_pool_size
+    )
 else:
     pool_size = int(os.getenv('DB_POOL_SIZE', '5'))
     min_pool_size = max(2, pool_size // 2)
@@ -454,8 +583,8 @@ def db_connection_with_retry(max_retries=2, initial_delay=3):
             conn_time = time.time() - start_time
             print(f"Connection failed after {conn_time:.1f}s: {str(e)[:50]}...")
 
-            # For SQLite, don't retry
-            if DB_CONFIG['type'] == 'sqlite':
+            # For SQLite and PostgreSQL, don't retry on errors (they handle connections differently)
+            if DB_CONFIG['type'] in ['sqlite', 'postgresql']:
                 raise
 
             # Check if it's worth retrying
@@ -513,8 +642,8 @@ def db_connection_with_resume_retry(max_retries=3, resume_delay=10):
                     time.sleep(delay)
                     continue
 
-            # For SQLite, don't retry
-            if DB_CONFIG['type'] == 'sqlite':
+            # For SQLite and PostgreSQL, don't retry on errors (they handle connections differently)
+            if DB_CONFIG['type'] in ['sqlite', 'postgresql']:
                 raise
 
             # Check if it's worth retrying for other connection issues

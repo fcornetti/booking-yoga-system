@@ -1,0 +1,11 @@
+{
+  "export_date": "2025-10-26T18:15:32.996822",
+  "source": "Azure SQL Server",
+  "database": "jantinevanwijlickdb",
+  "server": "jantinevanwijlickserver.database.windows.net",
+  "counts": {
+    "users": 43,
+    "yoga_classes": 25,
+    "bookings": 118
+  }
+}

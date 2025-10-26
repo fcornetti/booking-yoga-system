@@ -1,0 +1,828 @@
+[
+  {
+    "id": 1,
+    "user_id": 3,
+    "class_id": 4,
+    "booking_date": "2025-04-15T16:47:58.773000",
+    "status": "cancelled"
+  },
+  {
+    "id": 2,
+    "user_id": 3,
+    "class_id": 5,
+    "booking_date": "2025-04-15T17:26:55.453000",
+    "status": "cancelled"
+  },
+  {
+    "id": 3,
+    "user_id": 3,
+    "class_id": 5,
+    "booking_date": "2025-04-15T17:32:30.570000",
+    "status": "cancelled"
+  },
+  {
+    "id": 4,
+    "user_id": 3,
+    "class_id": 5,
+    "booking_date": "2025-04-15T17:55:05.950000",
+    "status": "cancelled"
+  },
+  {
+    "id": 5,
+    "user_id": 33,
+    "class_id": 5,
+    "booking_date": "2025-04-15T19:54:12.693000",
+    "status": "cancelled"
+  },
+  {
+    "id": 6,
+    "user_id": 3,
+    "class_id": 5,
+    "booking_date": "2025-04-15T20:26:00.993000",
+    "status": "cancelled"
+  },
+  {
+    "id": 7,
+    "user_id": 33,
+    "class_id": 5,
+    "booking_date": "2025-04-15T21:03:59.647000",
+    "status": "cancelled"
+  },
+  {
+    "id": 8,
+    "user_id": 38,
+    "class_id": 5,
+    "booking_date": "2025-04-15T21:20:41.410000",
+    "status": "active"
+  },
+  {
+    "id": 9,
+    "user_id": 39,
+    "class_id": 14,
+    "booking_date": "2025-04-16T15:42:31.727000",
+    "status": "cancelled"
+  },
+  {
+    "id": 10,
+    "user_id": 39,
+    "class_id": 14,
+    "booking_date": "2025-04-16T15:44:16.560000",
+    "status": "active"
+  },
+  {
+    "id": 11,
+    "user_id": 39,
+    "class_id": 15,
+    "booking_date": "2025-04-16T15:44:21.563000",
+    "status": "cancelled"
+  },
+  {
+    "id": 12,
+    "user_id": 39,
+    "class_id": 15,
+    "booking_date": "2025-04-16T15:46:04.660000",
+    "status": "cancelled"
+  },
+  {
+    "id": 13,
+    "user_id": 3,
+    "class_id": 14,
+    "booking_date": "2025-04-17T14:08:26.270000",
+    "status": "cancelled"
+  },
+  {
+    "id": 14,
+    "user_id": 3,
+    "class_id": 15,
+    "booking_date": "2025-04-17T14:08:39.337000",
+    "status": "cancelled"
+  },
+  {
+    "id": 15,
+    "user_id": 3,
+    "class_id": 15,
+    "booking_date": "2025-04-17T15:20:37.833000",
+    "status": "cancelled"
+  },
+  {
+    "id": 16,
+    "user_id": 3,
+    "class_id": 14,
+    "booking_date": "2025-04-17T16:18:29.883000",
+    "status": "cancelled"
+  },
+  {
+    "id": 17,
+    "user_id": 3,
+    "class_id": 15,
+    "booking_date": "2025-04-18T10:32:13.370000",
+    "status": "cancelled"
+  },
+  {
+    "id": 18,
+    "user_id": 33,
+    "class_id": 15,
+    "booking_date": "2025-04-18T11:10:31.710000",
+    "status": "cancelled"
+  },
+  {
+    "id": 19,
+    "user_id": 33,
+    "class_id": 15,
+    "booking_date": "2025-04-18T11:10:36.940000",
+    "status": "cancelled"
+  },
+  {
+    "id": 20,
+    "user_id": 33,
+    "class_id": 15,
+    "booking_date": "2025-04-18T22:57:28.313000",
+    "status": "cancelled"
+  },
+  {
+    "id": 21,
+    "user_id": 3,
+    "class_id": 15,
+    "booking_date": "2025-04-19T08:17:48.610000",
+    "status": "cancelled"
+  },
+  {
+    "id": 22,
+    "user_id": 33,
+    "class_id": 15,
+    "booking_date": "2025-04-20T18:53:45.503000",
+    "status": "cancelled"
+  },
+  {
+    "id": 23,
+    "user_id": 40,
+    "class_id": 14,
+    "booking_date": "2025-04-21T07:59:04.857000",
+    "status": "cancelled"
+  },
+  {
+    "id": 24,
+    "user_id": 41,
+    "class_id": 14,
+    "booking_date": "2025-04-22T18:46:42.627000",
+    "status": "active"
+  },
+  {
+    "id": 25,
+    "user_id": 43,
+    "class_id": 15,
+    "booking_date": "2025-04-22T19:08:02.987000",
+    "status": "cancelled"
+  },
+  {
+    "id": 26,
+    "user_id": 3,
+    "class_id": 15,
+    "booking_date": "2025-04-23T10:20:34.980000",
+    "status": "cancelled"
+  },
+  {
+    "id": 27,
+    "user_id": 44,
+    "class_id": 15,
+    "booking_date": "2025-04-26T22:44:57.723000",
+    "status": "active"
+  },
+  {
+    "id": 28,
+    "user_id": 40,
+    "class_id": 15,
+    "booking_date": "2025-05-01T13:23:10.210000",
+    "status": "cancelled"
+  },
+  {
+    "id": 29,
+    "user_id": 45,
+    "class_id": 15,
+    "booking_date": "2025-05-01T13:24:20.790000",
+    "status": "active"
+  },
+  {
+    "id": 30,
+    "user_id": 46,
+    "class_id": 15,
+    "booking_date": "2025-05-01T14:25:43.367000",
+    "status": "active"
+  },
+  {
+    "id": 31,
+    "user_id": 47,
+    "class_id": 15,
+    "booking_date": "2025-05-04T08:12:17.800000",
+    "status": "active"
+  },
+  {
+    "id": 32,
+    "user_id": 48,
+    "class_id": 15,
+    "booking_date": "2025-05-04T14:40:52.087000",
+    "status": "active"
+  },
+  {
+    "id": 33,
+    "user_id": 3,
+    "class_id": 14,
+    "booking_date": "2025-05-04T16:39:14.053000",
+    "status": "cancelled"
+  },
+  {
+    "id": 34,
+    "user_id": 3,
+    "class_id": 14,
+    "booking_date": "2025-05-04T16:39:42.997000",
+    "status": "cancelled"
+  },
+  {
+    "id": 35,
+    "user_id": 3,
+    "class_id": 14,
+    "booking_date": "2025-05-04T16:40:04.660000",
+    "status": "cancelled"
+  },
+  {
+    "id": 36,
+    "user_id": 3,
+    "class_id": 14,
+    "booking_date": "2025-05-04T16:43:05.930000",
+    "status": "cancelled"
+  },
+  {
+    "id": 37,
+    "user_id": 3,
+    "class_id": 15,
+    "booking_date": "2025-05-04T16:44:06.573000",
+    "status": "cancelled"
+  },
+  {
+    "id": 38,
+    "user_id": 40,
+    "class_id": 14,
+    "booking_date": "2025-05-05T12:16:10.783000",
+    "status": "cancelled"
+  },
+  {
+    "id": 39,
+    "user_id": 40,
+    "class_id": 15,
+    "booking_date": "2025-05-05T12:24:53.487000",
+    "status": "cancelled"
+  },
+  {
+    "id": 40,
+    "user_id": 40,
+    "class_id": 14,
+    "booking_date": "2025-05-05T12:42:02.383000",
+    "status": "cancelled"
+  },
+  {
+    "id": 41,
+    "user_id": 50,
+    "class_id": 15,
+    "booking_date": "2025-05-05T13:12:41.470000",
+    "status": "active"
+  },
+  {
+    "id": 42,
+    "user_id": 3,
+    "class_id": 14,
+    "booking_date": "2025-05-05T14:36:10.970000",
+    "status": "cancelled"
+  },
+  {
+    "id": 43,
+    "user_id": 40,
+    "class_id": 15,
+    "booking_date": "2025-05-05T14:42:29.060000",
+    "status": "active"
+  },
+  {
+    "id": 44,
+    "user_id": 40,
+    "class_id": 14,
+    "booking_date": "2025-05-05T15:34:57.837000",
+    "status": "active"
+  },
+  {
+    "id": 45,
+    "user_id": 52,
+    "class_id": 14,
+    "booking_date": "2025-05-05T21:42:06.740000",
+    "status": "active"
+  },
+  {
+    "id": 46,
+    "user_id": 49,
+    "class_id": 14,
+    "booking_date": "2025-05-05T21:43:12.403000",
+    "status": "active"
+  },
+  {
+    "id": 47,
+    "user_id": 51,
+    "class_id": 15,
+    "booking_date": "2025-05-06T08:36:08.543000",
+    "status": "active"
+  },
+  {
+    "id": 48,
+    "user_id": 54,
+    "class_id": 15,
+    "booking_date": "2025-05-06T12:08:03.500000",
+    "status": "cancelled"
+  },
+  {
+    "id": 49,
+    "user_id": 53,
+    "class_id": 15,
+    "booking_date": "2025-05-06T13:50:28.160000",
+    "status": "active"
+  },
+  {
+    "id": 50,
+    "user_id": 3,
+    "class_id": 14,
+    "booking_date": "2025-05-07T09:49:30.457000",
+    "status": "cancelled"
+  },
+  {
+    "id": 51,
+    "user_id": 3,
+    "class_id": 17,
+    "booking_date": "2025-05-12T21:40:03.167000",
+    "status": "cancelled"
+  },
+  {
+    "id": 52,
+    "user_id": 61,
+    "class_id": 17,
+    "booking_date": "2025-05-12T21:42:58.753000",
+    "status": "cancelled"
+  },
+  {
+    "id": 53,
+    "user_id": 3,
+    "class_id": 17,
+    "booking_date": "2025-05-12T21:46:55.583000",
+    "status": "cancelled"
+  },
+  {
+    "id": 54,
+    "user_id": 3,
+    "class_id": 17,
+    "booking_date": "2025-05-12T21:49:53.273000",
+    "status": "cancelled"
+  },
+  {
+    "id": 55,
+    "user_id": 61,
+    "class_id": 17,
+    "booking_date": "2025-05-12T21:50:36.900000",
+    "status": "cancelled"
+  },
+  {
+    "id": 56,
+    "user_id": 61,
+    "class_id": 17,
+    "booking_date": "2025-05-12T21:51:04.087000",
+    "status": "cancelled"
+  },
+  {
+    "id": 57,
+    "user_id": 40,
+    "class_id": 17,
+    "booking_date": "2025-05-12T21:51:28.347000",
+    "status": "cancelled"
+  },
+  {
+    "id": 58,
+    "user_id": 3,
+    "class_id": 17,
+    "booking_date": "2025-05-12T21:52:53.893000",
+    "status": "active"
+  },
+  {
+    "id": 59,
+    "user_id": 40,
+    "class_id": 17,
+    "booking_date": "2025-05-12T21:55:00.653000",
+    "status": "active"
+  },
+  {
+    "id": 60,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T12:28:17.927000",
+    "status": "cancelled"
+  },
+  {
+    "id": 61,
+    "user_id": 40,
+    "class_id": 18,
+    "booking_date": "2025-05-15T12:28:42.167000",
+    "status": "cancelled"
+  },
+  {
+    "id": 62,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T12:41:21.620000",
+    "status": "cancelled"
+  },
+  {
+    "id": 63,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T13:05:34.680000",
+    "status": "cancelled"
+  },
+  {
+    "id": 64,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T13:06:26.153000",
+    "status": "cancelled"
+  },
+  {
+    "id": 65,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T13:07:07.150000",
+    "status": "cancelled"
+  },
+  {
+    "id": 66,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T13:27:49.800000",
+    "status": "cancelled"
+  },
+  {
+    "id": 67,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T13:33:28.417000",
+    "status": "cancelled"
+  },
+  {
+    "id": 68,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T14:02:54.587000",
+    "status": "cancelled"
+  },
+  {
+    "id": 69,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T14:21:25.763000",
+    "status": "cancelled"
+  },
+  {
+    "id": 70,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T14:37:51.950000",
+    "status": "cancelled"
+  },
+  {
+    "id": 71,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T14:38:49.630000",
+    "status": "cancelled"
+  },
+  {
+    "id": 72,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T14:39:06.583000",
+    "status": "cancelled"
+  },
+  {
+    "id": 73,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T14:43:00.453000",
+    "status": "cancelled"
+  },
+  {
+    "id": 74,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T15:03:08.370000",
+    "status": "cancelled"
+  },
+  {
+    "id": 75,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T15:07:45.553000",
+    "status": "cancelled"
+  },
+  {
+    "id": 76,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T15:07:57.770000",
+    "status": "cancelled"
+  },
+  {
+    "id": 77,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T15:08:58.147000",
+    "status": "cancelled"
+  },
+  {
+    "id": 78,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T15:09:04.563000",
+    "status": "cancelled"
+  },
+  {
+    "id": 79,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T15:14:33.100000",
+    "status": "cancelled"
+  },
+  {
+    "id": 80,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T15:14:41.390000",
+    "status": "cancelled"
+  },
+  {
+    "id": 81,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T15:23:06.643000",
+    "status": "cancelled"
+  },
+  {
+    "id": 82,
+    "user_id": 40,
+    "class_id": 18,
+    "booking_date": "2025-05-15T15:25:36.983000",
+    "status": "cancelled"
+  },
+  {
+    "id": 83,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T15:54:42.837000",
+    "status": "cancelled"
+  },
+  {
+    "id": 84,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T15:54:51.227000",
+    "status": "cancelled"
+  },
+  {
+    "id": 85,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T16:10:59.687000",
+    "status": "cancelled"
+  },
+  {
+    "id": 86,
+    "user_id": 3,
+    "class_id": 18,
+    "booking_date": "2025-05-15T16:16:18.927000",
+    "status": "cancelled"
+  },
+  {
+    "id": 87,
+    "user_id": 40,
+    "class_id": 18,
+    "booking_date": "2025-05-15T16:16:32.493000",
+    "status": "cancelled"
+  },
+  {
+    "id": 88,
+    "user_id": 40,
+    "class_id": 18,
+    "booking_date": "2025-05-15T16:16:36.457000",
+    "status": "cancelled"
+  },
+  {
+    "id": 89,
+    "user_id": 40,
+    "class_id": 18,
+    "booking_date": "2025-05-15T20:15:38.700000",
+    "status": "cancelled"
+  },
+  {
+    "id": 90,
+    "user_id": 3,
+    "class_id": 23,
+    "booking_date": "2025-05-28T12:58:26.657000",
+    "status": "cancelled"
+  },
+  {
+    "id": 91,
+    "user_id": 3,
+    "class_id": 21,
+    "booking_date": "2025-05-28T12:58:33.057000",
+    "status": "cancelled"
+  },
+  {
+    "id": 92,
+    "user_id": 3,
+    "class_id": 23,
+    "booking_date": "2025-05-28T13:28:47.337000",
+    "status": "cancelled"
+  },
+  {
+    "id": 93,
+    "user_id": 3,
+    "class_id": 21,
+    "booking_date": "2025-05-28T16:42:17.753000",
+    "status": "cancelled"
+  },
+  {
+    "id": 94,
+    "user_id": 3,
+    "class_id": 23,
+    "booking_date": "2025-05-28T17:02:45.963000",
+    "status": "cancelled"
+  },
+  {
+    "id": 95,
+    "user_id": 40,
+    "class_id": 23,
+    "booking_date": "2025-06-01T09:44:49.537000",
+    "status": "cancelled"
+  },
+  {
+    "id": 96,
+    "user_id": 40,
+    "class_id": 23,
+    "booking_date": "2025-06-07T11:59:30.320000",
+    "status": "cancelled"
+  },
+  {
+    "id": 97,
+    "user_id": 40,
+    "class_id": 23,
+    "booking_date": "2025-06-13T19:44:02.403000",
+    "status": "cancelled"
+  },
+  {
+    "id": 98,
+    "user_id": 44,
+    "class_id": 21,
+    "booking_date": "2025-06-16T19:45:29.080000",
+    "status": "active"
+  },
+  {
+    "id": 99,
+    "user_id": 68,
+    "class_id": 21,
+    "booking_date": "2025-06-23T12:26:09.540000",
+    "status": "active"
+  },
+  {
+    "id": 100,
+    "user_id": 70,
+    "class_id": 23,
+    "booking_date": "2025-06-29T14:16:56.980000",
+    "status": "active"
+  },
+  {
+    "id": 101,
+    "user_id": 71,
+    "class_id": 23,
+    "booking_date": "2025-06-29T14:23:03.660000",
+    "status": "active"
+  },
+  {
+    "id": 102,
+    "user_id": 45,
+    "class_id": 23,
+    "booking_date": "2025-07-07T07:22:47.340000",
+    "status": "active"
+  },
+  {
+    "id": 103,
+    "user_id": 72,
+    "class_id": 23,
+    "booking_date": "2025-07-07T07:26:06.453000",
+    "status": "active"
+  },
+  {
+    "id": 104,
+    "user_id": 73,
+    "class_id": 23,
+    "booking_date": "2025-07-08T06:39:26.647000",
+    "status": "active"
+  },
+  {
+    "id": 105,
+    "user_id": 40,
+    "class_id": 21,
+    "booking_date": "2025-07-08T12:36:40.683000",
+    "status": "cancelled"
+  },
+  {
+    "id": 106,
+    "user_id": 40,
+    "class_id": 21,
+    "booking_date": "2025-07-08T13:02:53.127000",
+    "status": "active"
+  },
+  {
+    "id": 107,
+    "user_id": 40,
+    "class_id": 23,
+    "booking_date": "2025-07-09T06:32:58.350000",
+    "status": "active"
+  },
+  {
+    "id": 108,
+    "user_id": 74,
+    "class_id": 23,
+    "booking_date": "2025-07-09T08:31:23.790000",
+    "status": "active"
+  },
+  {
+    "id": 109,
+    "user_id": 41,
+    "class_id": 23,
+    "booking_date": "2025-07-10T13:07:43.437000",
+    "status": "active"
+  },
+  {
+    "id": 110,
+    "user_id": 68,
+    "class_id": 24,
+    "booking_date": "2025-08-09T17:28:28.830000",
+    "status": "active"
+  },
+  {
+    "id": 111,
+    "user_id": 68,
+    "class_id": 27,
+    "booking_date": "2025-09-27T17:40:33.530000",
+    "status": "active"
+  },
+  {
+    "id": 112,
+    "user_id": 40,
+    "class_id": 26,
+    "booking_date": "2025-09-30T20:01:49.683000",
+    "status": "active"
+  },
+  {
+    "id": 113,
+    "user_id": 40,
+    "class_id": 27,
+    "booking_date": "2025-09-30T20:01:54.460000",
+    "status": "active"
+  },
+  {
+    "id": 114,
+    "user_id": 45,
+    "class_id": 26,
+    "booking_date": "2025-10-06T09:37:30.700000",
+    "status": "active"
+  },
+  {
+    "id": 115,
+    "user_id": 72,
+    "class_id": 26,
+    "booking_date": "2025-10-06T09:38:15.503000",
+    "status": "active"
+  },
+  {
+    "id": 116,
+    "user_id": 41,
+    "class_id": 27,
+    "booking_date": "2025-10-06T11:21:35.890000",
+    "status": "active"
+  },
+  {
+    "id": 117,
+    "user_id": 77,
+    "class_id": 27,
+    "booking_date": "2025-10-06T16:39:32.007000",
+    "status": "active"
+  },
+  {
+    "id": 118,
+    "user_id": 70,
+    "class_id": 26,
+    "booking_date": "2025-10-07T07:31:25.397000",
+    "status": "active"
+  }
+]

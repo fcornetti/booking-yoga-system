@@ -1,0 +1,252 @@
+[
+  {
+    "id": 2,
+    "name": "Evening slow flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-05-09T19:15:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "DefaultValue"
+  },
+  {
+    "id": 3,
+    "name": "Evening slow flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-12-13T19:15:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "DefaultValue"
+  },
+  {
+    "id": 4,
+    "name": "Evening slow flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-12-13T19:15:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "DefaultValue"
+  },
+  {
+    "id": 5,
+    "name": "Evening slow flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2026-09-13T19:15:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "DefaultValue"
+  },
+  {
+    "id": 6,
+    "name": "Morning slow flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-05-09T00:00:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "DefaultValue"
+  },
+  {
+    "id": 7,
+    "name": "Morning slow flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-05-09T19:15:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "DefaultValue"
+  },
+  {
+    "id": 8,
+    "name": "Morning slow flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-05-09T19:15:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "DefaultValue"
+  },
+  {
+    "id": 9,
+    "name": "Evening slow flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-05-09T19:15:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "DefaultValue"
+  },
+  {
+    "id": 10,
+    "name": "Morning energizing flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-05-11T10:15:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "DefaultValue"
+  },
+  {
+    "id": 11,
+    "name": "Morning energizing flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-05-09T19:30:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "DefaultValue"
+  },
+  {
+    "id": 12,
+    "name": "Morning energizing flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-05-11T10:15:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "DefaultValue"
+  },
+  {
+    "id": 13,
+    "name": "Slow evening energizing flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-05-09T19:30:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "DefaultValue"
+  },
+  {
+    "id": 14,
+    "name": "Slow evening flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-05-09T19:30:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "active",
+    "location": "Samana Yoga Center, Droogbak 11, Amsterdam, 1013 GG"
+  },
+  {
+    "id": 15,
+    "name": "Energizing morning flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-05-11T10:15:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "active",
+    "location": "Samana Yoga Center, Droogbak 11, Amsterdam, 1013 GG"
+  },
+  {
+    "id": 17,
+    "name": "Morning Flow",
+    "instructor": "Jantine",
+    "date_time": "2025-05-15T09:30:00",
+    "duration": 75,
+    "capacity": 20,
+    "status": "active",
+    "location": "Yoga Studio Amsterdam, Herengracht 128"
+  },
+  {
+    "id": 18,
+    "name": "test",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-05-16T19:30:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "active",
+    "location": "Samana Yoga Center, Droogbak 11, Amsterdam, 1013 GG"
+  },
+  {
+    "id": 19,
+    "name": "Slow evening flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-06-11T19:30:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "Samana Yoga Center, Droogbak 11, Amsterdam, 1013 GG"
+  },
+  {
+    "id": 20,
+    "name": "Energizing morning flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-06-13T10:15:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "Samana Yoga Center, Droogbak 11, Amsterdam, 1013 GG"
+  },
+  {
+    "id": 21,
+    "name": "Energizing morning flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-07-13T10:15:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "active",
+    "location": "Samana Yoga Center, Droogbak 11, Amsterdam, 1013 GG"
+  },
+  {
+    "id": 22,
+    "name": "Energizing morning flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-07-11T19:30:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "cancelled",
+    "location": "Samana Yoga Center, Droogbak 11, Amsterdam, 1013 GG"
+  },
+  {
+    "id": 23,
+    "name": "Slow evening flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-07-11T19:30:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "active",
+    "location": "Samana Yoga Center, Droogbak 11, Amsterdam, 1013 GG"
+  },
+  {
+    "id": 24,
+    "name": "Energizing morning flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-08-17T10:15:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "active",
+    "location": "Samana Yoga Center, Droogbak 11, Amsterdam, 1013 GG"
+  },
+  {
+    "id": 25,
+    "name": "Slow evening flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-08-15T19:30:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "active",
+    "location": "Samana Yoga Center, Droogbak 11, Amsterdam, 1013 GG"
+  },
+  {
+    "id": 26,
+    "name": "Slow evening flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-10-10T19:30:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "active",
+    "location": "Samana Yoga Center, Droogbak 11, Amsterdam, 1013 GG"
+  },
+  {
+    "id": 27,
+    "name": "Energizing morning flow",
+    "instructor": "Jantine van Wijlick",
+    "date_time": "2025-10-12T10:15:00",
+    "duration": 75,
+    "capacity": 12,
+    "status": "active",
+    "location": "Samana Yoga Center, Droogbak 11, Amsterdam, 1013 GG"
+  }
+]
