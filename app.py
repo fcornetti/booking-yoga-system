@@ -247,6 +247,23 @@ def get_sql_queries():
 
 SQL_QUERIES = get_sql_queries()
 
+# Parameter placeholder for different databases
+def get_param_placeholder():
+    """Get the correct parameter placeholder for the current database type"""
+    if DB_CONFIG['type'] == 'postgresql':
+        return '%s'
+    else:
+        return '?'
+
+PARAM = get_param_placeholder()
+
+def convert_query(query):
+    """Convert query placeholders to match the current database type"""
+    if DB_CONFIG['type'] == 'postgresql':
+        # Replace ? with %s for PostgreSQL
+        return query.replace('?', '%s')
+    return query
+
 # Configure SQLite to automatically handle datetime conversion
 def adapt_datetime(dt):
     """Convert datetime to ISO string for SQLite storage"""
@@ -733,11 +750,11 @@ class User(UserMixin):
         """Update the user's verification status"""
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
-                cursor.execute("""
+                cursor.execute(convert_query("""
                 UPDATE Users 
                 SET is_verified = 1, verification_token = NULL, token_expiry = NULL 
                 WHERE id = ?
-                """, (self.id,))
+                """), (self.id,))
                 conn.commit()
 
         self.is_verified = True
@@ -752,11 +769,11 @@ class User(UserMixin):
 
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
-                cursor.execute("""
+                cursor.execute(convert_query("""
                 UPDATE Users 
                 SET verification_token = ?, token_expiry = ? 
                 WHERE id = ?
-                """, (token, expiry, self.id))
+                """), (token, expiry, self.id))
                 conn.commit()
 
         self.verification_token = token
@@ -782,10 +799,10 @@ class User(UserMixin):
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 # Insert user into database
-                cursor.execute("""
+                cursor.execute(convert_query("""
                 INSERT INTO Users (name, surname, email, password_hash, is_verified, verification_token, token_expiry)
                 VALUES (?, ?, ?, ?, 0, ?, ?)
-                """, (name, surname, email, password_hash, verification_token, token_expiry))
+                """), (name, surname, email, password_hash, verification_token, token_expiry))
 
                 cursor.execute(SQL_QUERIES['get_identity'])
                 user_id = cursor.fetchone()[0]
@@ -809,11 +826,11 @@ class User(UserMixin):
         try:
             with db_connection_with_retry() as conn:
                 with db_cursor(conn) as cursor:
-                    cursor.execute("""
+                    cursor.execute(convert_query("""
                         SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
                         FROM Users 
                         WHERE verification_token = ?
-                        """, (token,))
+                        """), (token,))
                     row = cursor.fetchone()
 
                     if not row:
@@ -848,11 +865,11 @@ class User(UserMixin):
                 query_start = time.time()
 
                 with db_cursor(conn) as cursor:
-                    cursor.execute("""
+                    cursor.execute(convert_query("""
                         SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
                         FROM Users 
                         WHERE email = ?
-                        """, (email,))
+                        """), (email,))
 
                     row = cursor.fetchone()
 
@@ -974,10 +991,10 @@ class YogaClass:
             with db_cursor(conn) as cursor:
                 # Update the class status to cancelled
                 self.status = 'cancelled'
-                cursor.execute("UPDATE YogaClasses SET status = 'cancelled' WHERE id = ?", (self.id,))
+                cursor.execute(convert_query("UPDATE YogaClasses SET status = 'cancelled' WHERE id = ?"), (self.id,))
 
                 # Update all active bookings for this class to cancelled
-                cursor.execute("UPDATE Bookings SET status = 'cancelled' WHERE class_id = ? AND status = 'active'", (self.id,))
+                cursor.execute(convert_query("UPDATE Bookings SET status = 'cancelled' WHERE class_id = ? AND status = 'active'"), (self.id,))
 
                 # For SQLite, we need to get row count differently
                 if DB_CONFIG['type'] == 'sqlite':
@@ -1225,7 +1242,7 @@ class Booking:
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 self.status = 'cancelled'
-                cursor.execute("UPDATE Bookings SET status = 'cancelled' WHERE id = ?", (self.id,))
+                cursor.execute(convert_query("UPDATE Bookings SET status = 'cancelled' WHERE id = ?"), (self.id,))
                 conn.commit()
         return True
 
