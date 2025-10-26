@@ -899,11 +899,11 @@ class User(UserMixin):
                 try:
                     with db_connection_with_retry() as conn:
                         with db_cursor(conn) as cursor:
-                            cursor.execute("""
+                            cursor.execute(convert_query("""
                                 SELECT id, name, surname, email, password_hash, is_verified, verification_token, token_expiry
                                 FROM Users 
                                 WHERE id = ?
-                                """, (user_id,))
+                                """), (user_id,))
                             row = cursor.fetchone()
 
                             if not row:
@@ -1121,7 +1121,7 @@ class YogaClass:
                         COUNT(CASE WHEN B.status = 'active' THEN 1 ELSE NULL END) as booking_count
                     FROM YogaClasses YC
                     LEFT JOIN Bookings B ON YC.id = B.class_id
-                    WHERE YC.date_time > GETDATE() AND YC.status = 'active'
+                    WHERE YC.date_time > CURRENT_TIMESTAMP AND YC.status = 'active'
                     GROUP BY 
                         YC.id, YC.name, YC.instructor, YC.date_time, YC.duration, 
                         YC.capacity, YC.status, YC.location
@@ -1212,26 +1212,20 @@ class Booking:
 
                 if self.id is None:
                     # Create the booking
-                    if DB_CONFIG['type'] == 'sqlite':
-                        cursor.execute("""
-                        INSERT INTO Bookings (user_id, class_id, booking_date, status)
-                        VALUES (?, ?, CURRENT_TIMESTAMP, ?)
-                        """, (self.user_id, self.class_id, self.status))
-                    else:
-                        cursor.execute("""
-                        INSERT INTO Bookings (user_id, class_id, booking_date, status)
-                        VALUES (?, ?, GETDATE(), ?)
-                        """, (self.user_id, self.class_id, self.status))
+                    cursor.execute(convert_query("""
+                    INSERT INTO Bookings (user_id, class_id, booking_date, status)
+                    VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+                    """), (self.user_id, self.class_id, self.status))
 
                     cursor.execute(SQL_QUERIES['get_identity'])
                     self.id = cursor.fetchone()[0]
                 else:
                     # Update existing booking
-                    cursor.execute("""
+                    cursor.execute(convert_query("""
                     UPDATE Bookings 
                     SET user_id = ?, class_id = ?, status = ?
                     WHERE id = ?
-                    """, (self.user_id, self.class_id, self.status, self.id))
+                    """), (self.user_id, self.class_id, self.status, self.id))
 
                 conn.commit()
 
@@ -1289,11 +1283,11 @@ class Booking:
         """Get a booking by ID"""
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
-                cursor.execute("""
+                cursor.execute(convert_query("""
                 SELECT id, user_id, class_id, booking_date, status 
                 FROM Bookings 
                 WHERE id = ?
-                """, (booking_id,))
+                """), (booking_id,))
                 row = cursor.fetchone()
 
         if row:
@@ -1330,11 +1324,11 @@ class Booking:
                             YC.name, YC.instructor, YC.date_time, YC.duration, YC.location
                         FROM Bookings B
                         JOIN YogaClasses YC ON B.class_id = YC.id
-                        WHERE B.user_id = ? AND B.status = 'active' AND YC.date_time > GETDATE()
+                        WHERE B.user_id = ? AND B.status = 'active' AND YC.date_time > CURRENT_TIMESTAMP
                         ORDER BY YC.date_time
                         """
 
-                    cursor.execute(query, (user_id,))
+                    cursor.execute(convert_query(query), (user_id,))
                     rows = cursor.fetchall()
 
                     bookings = []
@@ -1847,11 +1841,11 @@ def request_password_reset():
         # Store the token in the database
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
-                cursor.execute("""
+                cursor.execute(convert_query("""
                 UPDATE Users 
                 SET verification_token = ?, token_expiry = ?
                 WHERE id = ?
-                """, (reset_token, token_expiry, user.id))
+                """), (reset_token, token_expiry, user.id))
                 conn.commit()
 
         # Send password reset email
@@ -1877,11 +1871,11 @@ def reset_password(token):
         # Find user by reset token (using verification_token column)
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
-                cursor.execute("""
+                cursor.execute(convert_query("""
                 SELECT id, token_expiry 
                 FROM Users 
                 WHERE verification_token = ?
-                """, (token,))
+                """), (token,))
                 row = cursor.fetchone()
 
                 if not row:
@@ -1896,11 +1890,11 @@ def reset_password(token):
 
                 # Update password and clear token
                 password_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
-                cursor.execute("""
+                cursor.execute(convert_query("""
                 UPDATE Users 
                 SET password_hash = ?, verification_token = NULL, token_expiry = NULL
                 WHERE id = ?
-                """, (password_hash, user_id))
+                """), (password_hash, user_id))
                 conn.commit()
 
         return jsonify({'message': 'Password reset successfully'}), 200
@@ -1915,11 +1909,11 @@ def show_password_reset_form(token):
     try:
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
-                cursor.execute("""
+                cursor.execute(convert_query("""
                 SELECT id, token_expiry
                 FROM Users
                 WHERE verification_token = ?
-                """, (token,))
+                """), (token,))
                 row = cursor.fetchone()
 
                 if not row:
