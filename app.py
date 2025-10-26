@@ -750,11 +750,13 @@ class User(UserMixin):
         """Update the user's verification status"""
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
+                # Use TRUE for PostgreSQL, 1 for others
+                is_verified_value = True if DB_CONFIG['type'] == 'postgresql' else 1
                 cursor.execute(convert_query("""
                 UPDATE Users 
-                SET is_verified = 1, verification_token = NULL, token_expiry = NULL 
+                SET is_verified = ?, verification_token = NULL, token_expiry = NULL 
                 WHERE id = ?
-                """), (self.id,))
+                """), (is_verified_value, self.id))
                 conn.commit()
 
         self.is_verified = True
@@ -799,10 +801,12 @@ class User(UserMixin):
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 # Insert user into database
+                # Use FALSE for is_verified (works in PostgreSQL and SQL Server)
+                is_verified_value = False if DB_CONFIG['type'] == 'postgresql' else 0
                 cursor.execute(convert_query("""
                 INSERT INTO Users (name, surname, email, password_hash, is_verified, verification_token, token_expiry)
-                VALUES (?, ?, ?, ?, 0, ?, ?)
-                """), (name, surname, email, password_hash, verification_token, token_expiry))
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """), (name, surname, email, password_hash, is_verified_value, verification_token, token_expiry))
 
                 cursor.execute(SQL_QUERIES['get_identity'])
                 user_id = cursor.fetchone()[0]
