@@ -969,21 +969,21 @@ class YogaClass:
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 if self.id is None:
-                    cursor.execute("""
+                    cursor.execute(convert_query("""
                     INSERT INTO YogaClasses (name, instructor, date_time, duration, capacity, status, location)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (self.name, self.instructor, self.date_time, self.duration,
+                    """), (self.name, self.instructor, self.date_time, self.duration,
                           self.capacity, self.status, self.location))
 
                     cursor.execute(SQL_QUERIES['get_identity'])
                     self.id = cursor.fetchone()[0]
                 else:
                     # This is an existing class being updated
-                    cursor.execute("""
+                    cursor.execute(convert_query("""
                     UPDATE YogaClasses 
                     SET name = ?, instructor = ?, date_time = ?, duration = ?, capacity = ?, status = ?, location = ?
                     WHERE id = ?
-                    """, (self.name, self.instructor, self.date_time, self.duration,
+                    """), (self.name, self.instructor, self.date_time, self.duration,
                           self.capacity, self.status, self.location, self.id))
 
                 conn.commit()
@@ -1014,11 +1014,11 @@ class YogaClass:
         """Get the number of active bookings for this class"""
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
-                cursor.execute("""
+                cursor.execute(convert_query("""
                 SELECT COUNT(*) 
                 FROM Bookings 
                 WHERE class_id = ? AND status = 'active'
-                """, (self.id,))
+                """), (self.id,))
                 count = cursor.fetchone()[0]
         return count
 
@@ -1077,11 +1077,11 @@ class YogaClass:
         """Get a yoga class by ID"""
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
-                cursor.execute("""
+                cursor.execute(convert_query("""
                 SELECT id, name, instructor, date_time, duration, capacity, status, location 
                 FROM YogaClasses 
                 WHERE id = ?
-                """, (class_id,))
+                """), (class_id,))
                 row = cursor.fetchone()
 
         if row:
@@ -1183,10 +1183,10 @@ class Booking:
         with db_connection_with_retry() as conn:
             with db_cursor(conn) as cursor:
                 # Check if user already has a booking for this class
-                cursor.execute("""
+                cursor.execute(convert_query("""
                 SELECT COUNT(*) FROM Bookings 
                 WHERE class_id = ? AND user_id = ? AND status = 'active'
-                """, (self.class_id, self.user_id))
+                """), (self.class_id, self.user_id))
                 current_booking = cursor.fetchone()[0]
 
                 if current_booking > 0:
@@ -1208,7 +1208,7 @@ class Booking:
                     WHERE B.user_id = ? AND B.status = 'active' AND YC1.date_time = YC2.date_time
                     """
 
-                cursor.execute(overlap_query, (self.class_id, self.user_id))
+                cursor.execute(convert_query(overlap_query), (self.class_id, self.user_id))
                 overlapping_booking = cursor.fetchone()[0]
 
                 if overlapping_booking > 0:
