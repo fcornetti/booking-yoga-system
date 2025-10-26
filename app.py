@@ -1435,7 +1435,11 @@ def send_verification_email(user):
     resend.api_key = os.getenv("RESEND_API_KEY")
     print(resend.api_key)
 
-    verification_link = f"{request.host_url}verify/{user.verification_token}"
+    # Use environment variable for base URL if set, otherwise use request URL
+    base_url = os.getenv("BASE_URL", request.host_url)
+    if not base_url.endswith('/'):
+        base_url += '/'
+    verification_link = f"{base_url}verify/{user.verification_token}"
 
     # Professional email content with peach color scheme
     html_content = f"""
@@ -1948,7 +1952,11 @@ def send_password_reset_email(user, reset_token):
     """Send password reset email via Resend"""
     resend.api_key = os.getenv("RESEND_API_KEY")
 
-    reset_link = f"{request.host_url}reset-password/{reset_token}"
+    # Use environment variable for base URL if set, otherwise use request URL
+    base_url = os.getenv("BASE_URL", request.host_url)
+    if not base_url.endswith('/'):
+        base_url += '/'
+    reset_link = f"{base_url}reset-password/{reset_token}"
 
     html_content = f"""
     <!DOCTYPE html>
