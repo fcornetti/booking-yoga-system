@@ -16,7 +16,7 @@ import threading
 import queue
 import sqlite3
 import resend
-from database_keepalive import *
+# from database_keepalive import *  # Disabled for Render - not needed with PostgreSQL
 
 # PostgreSQL support
 try:
@@ -2091,14 +2091,14 @@ atexit.register(connection_pool.close_all)
 
 if __name__ == '__main__':
     try:
-        # Start the database keepalive service
+        # Start the database keepalive service (disabled for Render/PostgreSQL)
         print("Starting Yoga Booking System...")
-        start_database_keepalive()
+        # start_database_keepalive()  # Not needed with PostgreSQL
 
         # Start your Flask app
         app.run(host='0.0.0.0', debug=True, port=8000)
     finally:
         # Clean shutdown
         print("Shutting down services...")
-        stop_database_keepalive()
+        # stop_database_keepalive()  # Not needed with PostgreSQL
         connection_pool.close_all()
