@@ -1,7 +1,7 @@
 
 # 🧘 Yoga Class Booking System
 
-This is a full-stack web application for managing yoga class bookings. It allows users to sign up, log in, verify their email, book yoga classes, and manage their bookings. Admin users can manage classes and users, including manual verification and viewing verification tokens.
+This is a full-stack web application for managing yoga class bookings. It allows users to sign up, log in, verify their email, book yoga classes, and manage their bookings. Admin users can manage classes and users, including manual verification and viewing verification tokens. a
 
 ## 🌐 Live 
 
