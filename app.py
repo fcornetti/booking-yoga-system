@@ -1000,12 +1000,13 @@ class YogaClass:
                 # Update all active bookings for this class to cancelled
                 cursor.execute(convert_query("UPDATE Bookings SET status = 'cancelled' WHERE class_id = ? AND status = 'active'"), (self.id,))
 
-                # For SQLite, we need to get row count differently
-                if DB_CONFIG['type'] == 'sqlite':
-                    affected_bookings = cursor.rowcount
-                else:
+                # Get row count based on database type
+                if DB_CONFIG['type'] == 'sqlserver':
                     cursor.execute("SELECT @@ROWCOUNT")
                     affected_bookings = cursor.fetchone()[0]
+                else:
+                    # Both SQLite and PostgreSQL support cursor.rowcount
+                    affected_bookings = cursor.rowcount
 
                 conn.commit()
         return affected_bookings
