@@ -19,8 +19,17 @@ services:
           property: connectionString
 
 databases:
-  # PostgreSQL Database
+  # Production PostgreSQL Database
   - name: yoga-booking-db
     databaseName: yoga_booking
     plan: free
+    region: frankfurt
+    ipAllowList: []
+  
+  # Test/Development PostgreSQL Database
+  - name: yoga-booking-db-test
+    databaseName: yoga_booking_test
+    plan: free
+    region: frankfurt
+    ipAllowList: []
 
