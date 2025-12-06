@@ -14,14 +14,7 @@ import time
 import threading
 import sqlite3
 import resend
-
-# PostgreSQL support
-try:
-    import psycopg2
-    from psycopg2 import pool as pg_pool
-    POSTGRES_AVAILABLE = True
-except ImportError:
-    POSTGRES_AVAILABLE = False
+from psycopg2 import pool as pg_pool
 
 # Load environment variables
 load_dotenv()
